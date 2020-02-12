@@ -9,28 +9,62 @@ from functools import partial
 import pprint
 from lark import Lark, Transformer, Discard
 from PyQt5 import QtWidgets, QtCore, QtGui
-
-def read_text(file):
-    """
-    Reads a whole text file (UTF-8 encoded).
-    """
-    with open(file, mode='r', encoding='utf-8', errors='ignore') as f:
-        text = f.read()
-    return text
+import utils
 
 
-def write_text(file, text):
+class TextEdit(QtWidgets.QTextEdit):
     """
-    Writes a whole text file (UTF-8 encoded).
+
     """
-    with open(file, mode='w', encoding='utf-8') as f:
-        f.write(text)
+
+    def __init__(self, *args, **kwargs):
+        """
+
+        """
+        super().__init__(*args, **kwargs)
+
+    def keyPressEvent(self, e: QtGui.QKeyEvent) -> None:
+        """
+
+        """
+        if e.key() == QtCore.Qt.Key_Tab:
+            # TODO insert the correct amount of spaces
+            self.insertPlainText('    ')
+        else:
+            super().keyPressEvent(e)
+
+
+
+class SettingsWindow(QtWidgets.QWidget):
+    """
+    Settings window.
+    """
+
+    def __init__(self, *args, **kwargs):
+        """
+        Sets up the settings window.
+        """
+        super().__init__(*args, **kwargs)
+        self.setWindowTitle('Properties')
+        self.setWindowModality(QtCore.Qt.WindowModal)
+        self.setWindowFlags(QtCore.Qt.Window)
+
+        cc = QtWidgets.QComboBox(self)
+        cc.addItems(['Earley', 'LALR(1)', 'CYK Parser'])
+
+        ll = QtWidgets.QFormLayout(self)
+        ll.addRow('Parser', cc)
+        ll.addRow('Ambiguity', QtWidgets.QComboBox())
+        ll.addRow('Starting rule', QtWidgets.QLineEdit('start'))
+        self.setLayout(ll)
 
 
 class MainWindow(QtWidgets.QWidget):
+    """
 
+    """
 
-    #: signal, scenario has changed completely
+    #: signal, update button has been pressed
     update = QtCore.pyqtSignal()
 
     def __init__(self, *args, **kwargs):
@@ -42,163 +76,147 @@ class MainWindow(QtWidgets.QWidget):
 
         font = QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.FixedFont)
 
-        layout = QtWidgets.QGridLayout(self)
-
-
-        box = QtWidgets.QGroupBox('Grammar')
-        l = QtWidgets.QVBoxLayout()
-        box.setLayout(l)
-        #self.tb = QtWidgets.QToolBar()
-        #self.ag = QtWidgets.QActionGroup(self.tb)
-        #for i in range(4):
-        #    a = QtWidgets.QAction('{}'.format(i), self.ag)
-        #    a.setCheckable(True)
-        #    self.tb.addAction(a)
-        #l.addWidget(self.tb)
-        #self.edit = QtWidgets.QTextEdit()
-        #self.edit.setFont(font)
-        tw = QtWidgets.QTabWidget()
+        grammar_groupbox = QtWidgets.QGroupBox('Grammar')
+        self.grammar_tabs = QtWidgets.QTabWidget()
+        self.grammars = []
         for i in range(4):
-            edit = QtWidgets.QTextEdit()
-            tw.addTab(edit, '{}'.format(i))
-        l.addWidget(tw)
-        tw.tabBar().tabBarClicked.connect(self.show_menu)
-        # l.addWidget(self.edit)
+            edit = TextEdit()
+            edit.setFont(font)
+            self.grammar_tabs.addTab(edit, '{}'.format(i))
+            self.grammars.append(edit)
+        l = QtWidgets.QVBoxLayout()
+        l.addWidget(self.grammar_tabs)
+        grammar_groupbox.setLayout(l)
 
         # transformer box
-        boxx = QtWidgets.QGroupBox('Transformer')
-        l7 = QtWidgets.QVBoxLayout()
-        boxx.setLayout(l7)
-
-        self.tb3 = QtWidgets.QToolBar()
-        self.ag3 = QtWidgets.QActionGroup(self.tb3)
+        transformer_groupbox = QtWidgets.QGroupBox('Transformer')
+        self.transformer_tabs = QtWidgets.QTabWidget()
+        self.transformers = []
         for i in range(4):
-            a = QtWidgets.QAction('{}'.format(i), self.ag3)
-            a.setCheckable(True)
-            self.tb3.addAction(a)
-        a = QtWidgets.QAction('New', self.tb3)
-        self.tb3.addAction(a)
-        l7.addWidget(self.tb3)
-
-        self.edit7 = QtWidgets.QTextEdit()
-        self.edit7.setFont(font)
-        l7.addWidget(self.edit7)
+            edit = TextEdit()
+            edit.setFont(font)
+            self.transformer_tabs.addTab(edit, '{}'.format(i))
+            self.transformers.append(edit)
+        l = QtWidgets.QVBoxLayout()
+        l.addWidget(self.transformer_tabs)
+        transformer_groupbox.setLayout(l)
 
         # test content box
-        box2 = QtWidgets.QGroupBox('Test content')
-        l2 = QtWidgets.QVBoxLayout()
-        box2.setLayout(l2)
-
-        self.tb2 = QtWidgets.QToolBar()
-        self.ag2 = QtWidgets.QActionGroup(self.tb2)
+        content_groupbox = QtWidgets.QGroupBox('Test content')
+        self.content_tabs = QtWidgets.QTabWidget()
+        self.contents = []
         for i in range(4):
-            a = QtWidgets.QAction('{}'.format(i), self.ag2)
-            a.setCheckable(True)
-            self.tb2.addAction(a)
-        l2.addWidget(self.tb2)
+            edit = QtWidgets.QTextEdit()
+            edit.setFont(font)
+            self.content_tabs.addTab(edit, '{}'.format(i))
+            self.contents.append(edit)
+        l = QtWidgets.QVBoxLayout()
+        l.addWidget(self.content_tabs)
+        content_groupbox.setLayout(l)
 
-        self.edit2 = QtWidgets.QTextEdit()
-        self.edit2.setFont(font)
-        l2.addWidget(self.edit2)
+        # parsed tree output
+        parsed_groupbox = QtWidgets.QGroupBox('Parsed Tree')
+        self.parsed = QtWidgets.QTextEdit()
+        self.parsed.setReadOnly(True)
+        self.parsed.setFont(font)
+        l = QtWidgets.QVBoxLayout()
+        l.addWidget(self.parsed)
+        parsed_groupbox.setLayout(l)
 
-        box3 = QtWidgets.QGroupBox('Parsed Tree')
+        # transformed output
+        transformed_groupbox = QtWidgets.QGroupBox('Transformed')
+        self.transformed = QtWidgets.QTextEdit()
+        self.transformed.setReadOnly(True)
+        self.transformed.setFont(font)
+        self.transformed.setLineWrapMode(QtWidgets.QTextEdit.NoWrap)
+        l = QtWidgets.QVBoxLayout()
+        l.addWidget(self.transformed)
+        transformed_groupbox.setLayout(l)
 
-        self.edit3 = QtWidgets.QTextEdit()
-        self.edit3.setReadOnly(True)
-        self.edit3.setFont(font)
-        _ = QtWidgets.QVBoxLayout()
-        _.addWidget(self.edit3)
-        box3.setLayout(_)
-
-        boxy = QtWidgets.QGroupBox('Transformed')
-
-        self.edit4 = QtWidgets.QTextEdit()
-        self.edit4.setReadOnly(True)
-        self.edit4.setFont(font)
-        self.edit4.setLineWrapMode(QtWidgets.QTextEdit.NoWrap)
-        _ = QtWidgets.QVBoxLayout()
-        _.addWidget(self.edit4)
-        boxy.setLayout(_)
-
+        # help window
         self.help_window = QtWidgets.QTextEdit(self)
         self.help_window.setWindowTitle('Help')
         self.help_window.setReadOnly(True)
         self.help_window.setWindowModality(QtCore.Qt.WindowModal)
         self.help_window.setWindowFlags(QtCore.Qt.Window)
+        self.help_window.setMarkdown(readme_text)
 
-        self.prop_window = QtWidgets.QWidget(self)
-        self.prop_window.setWindowTitle('Properties')
-        self.prop_window.setWindowModality(QtCore.Qt.WindowModal)
-        self.prop_window.setWindowFlags(QtCore.Qt.Window)
+        # settings window
+        self.settings_window = SettingsWindow()
 
-        cc = QtWidgets.QComboBox(self.prop_window)
-        cc.addItems(['Earley', 'LALR(1)', 'CYK Parser'])
-
-        ll = QtWidgets.QFormLayout(self.prop_window)
-        ll.addRow('Parser', cc)
-        ll.addRow('Ambiguity', QtWidgets.QComboBox())
-        ll.addRow('Starting rule', QtWidgets.QLineEdit('start'))
-        self.prop_window.setLayout(ll)
-
-
+        # top toolbar
         toolbar = QtWidgets.QToolBar(self)
         action = QtWidgets.QAction(load_icon('go'), 'Parse and transform', self)
         action.triggered.connect(self.update.emit)
         toolbar.addAction(action)
 
         action = QtWidgets.QAction(load_icon('settings'), 'Settings', self)
-        action.triggered.connect(self.prop_window.show)
+        action.triggered.connect(self.settings_window.show)
         toolbar.addAction(action)
 
         action = QtWidgets.QAction(load_icon('help'), 'Help', self)
         action.triggered.connect(self.help_window.show)
         toolbar.addAction(action)
 
-        layout.addWidget(toolbar, 0, 0, 1, 3)
-        layout.addWidget(box, 1, 0)
-        layout.addWidget(boxx, 2, 0)
-        layout.addWidget(box2, 3, 0)
-        layout.addWidget(box3, 1, 1, 3, 1)
-        layout.addWidget(boxy, 1, 2, 3, 1)
+        # status bar
+        self.statusbar = QtWidgets.QStatusBar()
 
-    def show_menu(self):
-        menu = QtWidgets.QMenu(self)
-        menu.addAction(QtWidgets.QAction('Test'))
-        menu.exec(QtGui.QCursor.pos())
+        # wrap grammar, transformer and content boxes in single widget
+        left_side = QtWidgets.QWidget()
+        l = QtWidgets.QVBoxLayout()
+        l.setContentsMargins(0, 0, 0, 0)  # to avoid extra spacing
+        l.addWidget(grammar_groupbox)
+        l.addWidget(transformer_groupbox)
+        l.addWidget(content_groupbox)
+        left_side.setLayout(l)
 
-    def set_test_content(self, content):
-        self.edit2.setPlainText(content)
+        # create QSplitter and add all three columns
+        splitter = QtWidgets.QSplitter()
+        splitter.addWidget(left_side)
+        splitter.addWidget(parsed_groupbox)
+        splitter.addWidget(transformed_groupbox)
 
-    def test_content(self):
-        return self.edit2.toPlainText()
+        # layout
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.addWidget(toolbar)
+        layout.addWidget(splitter)
+        layout.addWidget(self.statusbar)
+
+    def set_content(self, content):
+        self.contents[self.content_tabs.currentIndex()].setPlainText(content)
+
+    def content(self):
+        return self.contents[self.content_tabs.currentIndex()].toPlainText()
 
     def set_grammar(self, grammar):
-        pass
-        # self.edit.setPlainText(grammar)
+        self.grammars[self.grammar_tabs.currentIndex()].setPlainText(grammar)
 
     def grammar(self):
-        return self.edit.toPlainText()
+        return self.grammars[self.grammar_tabs.currentIndex()].toPlainText()
 
-    def set_output(self, text):
-        self.edit3.setPlainText(text)
+    def set_parsed(self, text):
+        self.parsed.setPlainText(text)
 
     def set_transformed(self, text):
-        self.edit4.setPlainText(text)
+        self.transformed.setPlainText(text)
+
+    def show_message(self, text):
+        self.statusbar.showMessage(text)
 
 
 def update(main_window):
     try:
         parser = Lark(main_window.grammar(), debug=False)
-        text = main_window.test_content()
+        text = main_window.content()
         tree = parser.parse(text)
-        obj = EntryTransformer().transform(tree)
-        # obj = ListingTransformer().transform(tree)
+        # obj = Transformer().transform(tree)
     except Exception as e:
-        main_window.set_output(str(e))
+        main_window.set_parsed(str(e))
+        main_window.show_message('error occurred')
         print(e)
     else:
-        main_window.set_output(tree.pretty())
-        transformed = pprint.pformat(obj, indent=4, width=120, compact=True)
+        main_window.set_parsed(tree.pretty())
+        transformed = pprint.pformat('', indent=4, width=120, compact=True)
         main_window.set_transformed(transformed)
 
 
@@ -212,10 +230,14 @@ def load_icon(name):
     icon = QtGui.QIcon(path)
     return icon
 
+
 if __name__ == '__main__':
 
     # root path
     root_path = os.path.dirname(__file__)
+
+    # read readme file (for the help window)
+    readme_text = utils.read_text(os.path.join(root_path, 'README.md'))
 
     # create app
     app = QtWidgets.QApplication([])
@@ -228,14 +250,9 @@ if __name__ == '__main__':
     main_window.show()
 
     # read developer.md
-    #content = read_text(developer_file)
     content = ''
-    main_window.set_test_content(content)
-
-    # grammar_file = os.path.join(c.root_path, 'code', 'grammar_listing.lark')
-    # content = read_text(grammar_file)
+    main_window.set_content(content)
     main_window.set_grammar(content)
-
     main_window.update.connect(partial(update, main_window))
 
     # start Qt app execution
