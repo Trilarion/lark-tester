@@ -7,9 +7,29 @@ import sys
 import os
 from functools import partial
 import pprint
+import json
 from lark import Lark, Transformer, Discard
 from PyQt5 import QtWidgets, QtCore, QtGui
 import utils
+
+
+def get_setting(key, default_value):
+    """
+    Convenience function. Accesses a setting. If the setting key is not yet set, uses the default value and set it in
+    the settings
+    """
+    if key not in settings:
+        settings[key] = default_value
+    return settings[key]
+
+
+def set_setting(key, value):
+    """
+
+    """
+    if key not in settings:
+        raise RuntimeError('Unknown setting "{}" to be set.'.format(key))
+    settings[key] = value
 
 
 class TextEdit(QtWidgets.QTextEdit):
@@ -22,6 +42,7 @@ class TextEdit(QtWidgets.QTextEdit):
 
         """
         super().__init__(*args, **kwargs)
+        self.setAcceptRichText(False)
 
     def keyPressEvent(self, e: QtGui.QKeyEvent) -> None:
         """
@@ -32,7 +53,6 @@ class TextEdit(QtWidgets.QTextEdit):
             self.insertPlainText('    ')
         else:
             super().keyPressEvent(e)
-
 
 
 class SettingsWindow(QtWidgets.QWidget):
@@ -48,6 +68,7 @@ class SettingsWindow(QtWidgets.QWidget):
         self.setWindowTitle('Properties')
         self.setWindowModality(QtCore.Qt.WindowModal)
         self.setWindowFlags(QtCore.Qt.Window)
+        self.setMinimumSize(600, 400)
 
         cc = QtWidgets.QComboBox(self)
         cc.addItems(['Earley', 'LALR(1)', 'CYK Parser'])
@@ -72,7 +93,11 @@ class MainWindow(QtWidgets.QWidget):
         Sets up the graphics view, the toolbar and the tracker rectangle.
         """
         super().__init__(*args, **kwargs)
+
+        MIN_WIDTH = 1200
+        MIN_HEIGHT = 800
         self.setMinimumSize(1200, 800)
+        self.resize(get_setting('window.size.width', MIN_WIDTH), get_setting('window.size.height', MIN_HEIGHT))
 
         font = QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.FixedFont)
 
@@ -118,6 +143,7 @@ class MainWindow(QtWidgets.QWidget):
         parsed_groupbox = QtWidgets.QGroupBox('Parsed Tree')
         self.parsed = QtWidgets.QTextEdit()
         self.parsed.setReadOnly(True)
+        self.parsed.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse | QtCore.Qt.TextSelectableByKeyboard)
         self.parsed.setFont(font)
         l = QtWidgets.QVBoxLayout()
         l.addWidget(self.parsed)
@@ -136,6 +162,7 @@ class MainWindow(QtWidgets.QWidget):
         # help window
         self.help_window = QtWidgets.QTextEdit(self)
         self.help_window.setWindowTitle('Help')
+        self.help_window.setMinimumSize(600, 400)
         self.help_window.setReadOnly(True)
         self.help_window.setWindowModality(QtCore.Qt.WindowModal)
         self.help_window.setWindowFlags(QtCore.Qt.Window)
@@ -146,29 +173,52 @@ class MainWindow(QtWidgets.QWidget):
 
         # top toolbar
         toolbar = QtWidgets.QToolBar(self)
+
+        # parse and transform action
         action = QtWidgets.QAction(load_icon('go'), 'Parse and transform', self)
         action.triggered.connect(self.update.emit)
         toolbar.addAction(action)
 
+        # show settings action
         action = QtWidgets.QAction(load_icon('settings'), 'Settings', self)
         action.triggered.connect(self.settings_window.show)
         toolbar.addAction(action)
 
+        # show help action
         action = QtWidgets.QAction(load_icon('help'), 'Help', self)
         action.triggered.connect(self.help_window.show)
+        toolbar.addAction(action)
+
+        toolbar.addSeparator()
+
+        # new action
+        action = QtWidgets.QAction(load_icon('new'), 'New', self)
+        action.triggered.connect(self.new_action)
+        toolbar.addAction(action)
+
+        # load action
+        action = QtWidgets.QAction(load_icon('load'), 'Load', self)
+        action.triggered.connect(self.load_action)
+        toolbar.addAction(action)
+
+        # save action
+        action = QtWidgets.QAction(load_icon('save'), 'Save', self)
+        action.triggered.connect(self.save_action)
+        toolbar.addAction(action)
+
+        # search action
+        action = QtWidgets.QAction(load_icon('search'),'Search', self)
+        action.triggered.connect(self.search_action)
         toolbar.addAction(action)
 
         # status bar
         self.statusbar = QtWidgets.QStatusBar()
 
         # wrap grammar, transformer and content boxes in single widget
-        left_side = QtWidgets.QWidget()
-        l = QtWidgets.QVBoxLayout()
-        l.setContentsMargins(0, 0, 0, 0)  # to avoid extra spacing
-        l.addWidget(grammar_groupbox)
-        l.addWidget(transformer_groupbox)
-        l.addWidget(content_groupbox)
-        left_side.setLayout(l)
+        left_side = QtWidgets.QSplitter(QtCore.Qt.Vertical)
+        left_side.addWidget(grammar_groupbox)
+        left_side.addWidget(transformer_groupbox)
+        left_side.addWidget(content_groupbox)
 
         # create QSplitter and add all three columns
         splitter = QtWidgets.QSplitter()
@@ -179,7 +229,7 @@ class MainWindow(QtWidgets.QWidget):
         # layout
         layout = QtWidgets.QVBoxLayout(self)
         layout.addWidget(toolbar)
-        layout.addWidget(splitter)
+        layout.addWidget(splitter, stretch=1)
         layout.addWidget(self.statusbar)
 
     def set_content(self, content):
@@ -202,6 +252,49 @@ class MainWindow(QtWidgets.QWidget):
 
     def show_message(self, text):
         self.statusbar.showMessage(text)
+
+    def new_action(self):
+        pass
+
+    def load_action(self):
+        focus = self._determine_focus()
+        if focus in ('grammar_tabs', 'transformer_tabs', 'content_tabs'):
+            file = QtWidgets.QFileDialog.getOpenFileName(self, 'Open File', root_path)
+            print(file)
+
+    def save_action(self):
+        pass
+
+    def search_action(self):
+        pass
+
+    def _determine_focus(self):
+        if self.grammar_tabs.hasFocus():
+            return 'grammar_tabs'
+        if self.transformer_tabs.hasFocus():
+            return 'transformer_tabs'
+        if self.content_tabs.hasFocus():
+            return 'content_tabs'
+        if self.parsed.hasFocus():
+            return 'parsed'
+        if self.transformed.hasFocus():
+            return 'transformed'
+        return None
+
+    def closeEvent(self, event: QtGui.QCloseEvent) -> None:
+        """
+
+        """
+
+        # update settings
+        set_setting('window.size.width', self.width())
+        set_setting('window.size.height', self.height())
+
+        # save setting
+        text = json.dumps(settings, indent=1)
+        utils.write_text(settings_file, text)
+
+        event.accept()
 
 
 def update(main_window):
@@ -238,6 +331,15 @@ if __name__ == '__main__':
 
     # read readme file (for the help window)
     readme_text = utils.read_text(os.path.join(root_path, 'README.md'))
+
+    # read settings
+    settings = {}
+    settings_file = os.path.join(root_path, 'settings.json')
+    try:
+        text = utils.read_text(settings_file)
+        settings = json.loads(text)
+    except:
+        pass
 
     # create app
     app = QtWidgets.QApplication([])
