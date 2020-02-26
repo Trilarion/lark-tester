@@ -10,6 +10,7 @@ A small GUI written in PyQt for rapid development and testing of [Lark parser](h
 - Ctrl+L : Load
 - Ctrl+N : New
 - Ctrl+S : Save
+- Ctrl+(1,2,..) : Select a tab in the grammar/transformer/content areas
 
 
 

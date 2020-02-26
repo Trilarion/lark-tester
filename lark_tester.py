@@ -37,26 +37,45 @@ class TextEdit(QtWidgets.QTextEdit):
 
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, mode):
         """
 
         """
-        super().__init__(*args, **kwargs)
+        super().__init__()
         self.setAcceptRichText(False)
         self.file = None
+        if not mode in ('grammar', 'transformer', 'content'):
+            raise RuntimeError('unknown mode')
+        self.mode = mode
+        if self.mode == 'grammar':
+            self.file_filter = "Lark grammar (*.lark);;All files (*.*)"
+        elif self.mode == 'transformer':
+            self.file_filter = "Lark grammar (*.py);;All files (*.*)"
+        else:
+            self.file_filter = "All files (*.*)"
 
     def keyPressEvent(self, e: QtGui.QKeyEvent) -> None:
         """
-
+        Replace tab inputs with spaces, if desired.
         """
-        if e.key() == QtCore.Qt.Key_Tab:
+        if e.key() == QtCore.Qt.Key_Tab and self.mode in ('grammar', 'transformer'):
             # TODO insert the correct amount of spaces
-            self.insertPlainText('    ')
+            self.insertPlainText(' ' * get_setting('options.tab_replacement_spaces', 4))
         else:
             super().keyPressEvent(e)
 
     def new(self):
-        pass
+        """
+
+        """
+        if self.mode == 'transformer':
+            content = '# transformer\n\nclass MyTransformer(Transformer):\n    null = lambda self, _: None\n    true = lambda self, _: True\n    false = lambda self, _: False\n'
+        elif self.mode == 'grammar':
+            content = '// grammar\n\nstart:'
+        else:
+            content = ''
+        self.setPlainText(content)
+        self.file = None
 
     def load(self, *args):
         if args:
@@ -65,7 +84,7 @@ class TextEdit(QtWidgets.QTextEdit):
                 return
         else:
             # show file open dialog
-            file = QtWidgets.QFileDialog.getOpenFileName(self, 'Open File', get_setting('path.current'), "Lark grammar (*.lark);;All files (*.*)")
+            file = QtWidgets.QFileDialog.getOpenFileName(self, 'Open File', get_setting('path.current'), self.file_filter)
             file = file[0]
             if not file: # cancel in the dialog
                 return
@@ -82,7 +101,8 @@ class TextEdit(QtWidgets.QTextEdit):
             file = self.file
         else:
             # show file save dialog
-            file = QtWidgets.QFileDialog.getSaveFileName(self, 'Save File', get_setting('path.current'))
+            file = QtWidgets.QFileDialog.getSaveFileName(self, 'Save File', get_setting('path.current'), self.file_filter)
+            file = file[0]
 
         if not file:
             return
@@ -97,16 +117,37 @@ class TextEdit(QtWidgets.QTextEdit):
         pass
 
 
+class TabWidget(QtWidgets.QTabWidget):
+    """
+
+    """
+
+    def __init__(self):
+        """
+
+        """
+        super().__init__()
+
+    def keyPressEvent(self, e: QtGui.QKeyEvent) -> None:
+        """
+        Directly select tabs with Ctrl+Digit
+        """
+        if e.modifiers() == QtCore.Qt.ControlModifier and QtCore.Qt.Key_1 <= e.key() < QtCore.Qt.Key_1 + min(10, self.count()):
+            self.setCurrentIndex(e.key() - QtCore.Qt.Key_1)
+        else:
+            super().keyPressEvent(e)
+
+
 class SettingsWindow(QtWidgets.QWidget):
     """
     Settings window.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self):
         """
         Sets up the settings window.
         """
-        super().__init__(*args, **kwargs)
+        super().__init__()
         self.setWindowTitle('Properties')
         self.setWindowModality(QtCore.Qt.WindowModal)
         self.setWindowFlags(QtCore.Qt.Window)
@@ -115,7 +156,7 @@ class SettingsWindow(QtWidgets.QWidget):
         self.lark_parser_combobox = QtWidgets.QComboBox(self)
         lark_parsers = ['Earley', 'LALR(1)', 'CYK Parser']
         self.lark_parser_combobox.addItems(lark_parsers)
-        self.lark_parser_combobox.setCurrentText(get_setting('option.parser', lark_parsers[0]))
+        self.lark_parser_combobox.setCurrentText(get_setting('options.parser', lark_parsers[0]))
 
         ll = QtWidgets.QFormLayout(self)
         ll.addRow('Parser', self.lark_parser_combobox)
@@ -126,7 +167,7 @@ class SettingsWindow(QtWidgets.QWidget):
     def closeEvent(self, a0: QtGui.QCloseEvent) -> None:
 
         # update settings
-        set_setting('option.parser', self.lark_parser_combobox.currentText())
+        set_setting('options.parser', self.lark_parser_combobox.currentText())
 
 
 class LarkHighlighter(QtGui.QSyntaxHighlighter):
@@ -200,6 +241,10 @@ class MainWindow(QtWidgets.QWidget):
 
     """
 
+    NUMBER_TABS = 4
+    MIN_WIDTH = 1200
+    MIN_HEIGHT = 800
+
     #: signal, update button has been pressed
     update = QtCore.pyqtSignal()
 
@@ -209,57 +254,59 @@ class MainWindow(QtWidgets.QWidget):
         """
         super().__init__(*args, **kwargs)
 
-        MIN_WIDTH = 1200
-        MIN_HEIGHT = 800
-        self.setMinimumSize(1200, 800)
-        self.resize(get_setting('window.size.width', MIN_WIDTH), get_setting('window.size.height', MIN_HEIGHT))
+        self.setMinimumSize(MainWindow.MIN_WIDTH, MainWindow.MIN_HEIGHT)
+        self.resize(get_setting('window.size.width', MainWindow.MIN_WIDTH), get_setting('window.size.height', MainWindow.MIN_HEIGHT))
+        self.setWindowTitle('Lark Tester')
 
         font = QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.FixedFont)
 
         grammar_groupbox = QtWidgets.QGroupBox('Grammar')
-        self.grammar_tabs = QtWidgets.QTabWidget()
+        self.grammar_tabs = TabWidget()
         self.grammars = []
-        files = get_setting('files.grammars', [None]*4)
-        for i in range(4):
-            edit = TextEdit()
+        files = get_setting('grammars.files', [None]*MainWindow.NUMBER_TABS)
+        for i in range(MainWindow.NUMBER_TABS):
+            edit = TextEdit(mode='grammar')
             edit.setFont(font)
-            edit.load(files[i])
-            self.grammar_tabs.addTab(edit, '{}'.format(i))
+            edit.load(files[i])  # load them all initially
+            self.grammar_tabs.addTab(edit, '{}'.format(i+1))
             self.grammars.append(edit)
             # syntax highlighter
             LarkHighlighter(edit)
+        self.grammar_tabs.setCurrentIndex(get_setting('grammars.active_tab', 0))
         l = QtWidgets.QVBoxLayout()
         l.addWidget(self.grammar_tabs)
         grammar_groupbox.setLayout(l)
 
         # transformer box
         transformer_groupbox = QtWidgets.QGroupBox('Transformer')
-        self.transformer_tabs = QtWidgets.QTabWidget()
+        self.transformer_tabs = TabWidget()
         self.transformers = []
-        files = get_setting('files.transformers', [None]*4)
-        for i in range(4):
-            edit = TextEdit()
+        files = get_setting('transformers.files', [None]*MainWindow.NUMBER_TABS)
+        for i in range(MainWindow.NUMBER_TABS):
+            edit = TextEdit(mode='transformer')
             edit.setFont(font)
-            edit.load(files[i])
-            self.transformer_tabs.addTab(edit, '{}'.format(i))
+            edit.load(files[i])  # load them all initially
+            self.transformer_tabs.addTab(edit, '{}'.format(i+1))
             self.transformers.append(edit)
             # syntax highlighter
             PythonHighlighter(edit)
+        self.transformer_tabs.setCurrentIndex(get_setting('transformers.active_tab', 0))
         l = QtWidgets.QVBoxLayout()
         l.addWidget(self.transformer_tabs)
         transformer_groupbox.setLayout(l)
 
         # test content box
         content_groupbox = QtWidgets.QGroupBox('Test content')
-        self.content_tabs = QtWidgets.QTabWidget()
+        self.content_tabs = TabWidget()
         self.contents = []
-        files = get_setting('files.contents', [None] * 4)
-        for i in range(4):
-            edit = TextEdit() # TODO should not replace tabs with spaces
+        files = get_setting('contents.files', [None] * MainWindow.NUMBER_TABS)
+        for i in range(MainWindow.NUMBER_TABS):
+            edit = TextEdit(mode='content')
             edit.setFont(font)
-            edit.load(files[i])
-            self.content_tabs.addTab(edit, '{}'.format(i))
+            edit.load(files[i])  # load them all initially
+            self.content_tabs.addTab(edit, '{}'.format(i+1))
             self.contents.append(edit)
+        self.content_tabs.setCurrentIndex(get_setting('contents.active_tab', 0))
         l = QtWidgets.QVBoxLayout()
         l.addWidget(self.content_tabs)
         content_groupbox.setLayout(l)
@@ -278,6 +325,7 @@ class MainWindow(QtWidgets.QWidget):
         transformed_groupbox = QtWidgets.QGroupBox('Transformed')
         self.transformed = QtWidgets.QTextEdit()
         self.transformed.setReadOnly(True)
+        self.transformed.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse | QtCore.Qt.TextSelectableByKeyboard)
         self.transformed.setFont(font)
         self.transformed.setLineWrapMode(QtWidgets.QTextEdit.NoWrap)
         l = QtWidgets.QVBoxLayout()
@@ -365,14 +413,8 @@ class MainWindow(QtWidgets.QWidget):
         layout.addWidget(splitter, stretch=1)
         layout.addWidget(self.statusbar)
 
-    def set_content(self, content):
-        self.contents[self.content_tabs.currentIndex()].setPlainText(content)
-
     def content(self):
         return self.contents[self.content_tabs.currentIndex()].toPlainText()
-
-    def set_grammar(self, grammar):
-        self.grammars[self.grammar_tabs.currentIndex()].setPlainText(grammar)
 
     def grammar(self):
         return self.grammars[self.grammar_tabs.currentIndex()].toPlainText()
@@ -405,6 +447,7 @@ class MainWindow(QtWidgets.QWidget):
         focus = self.focusWidget()
         if isinstance(focus, TextEdit):
             focus.search()
+        # TODO also search in output windows
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
         """
@@ -415,12 +458,16 @@ class MainWindow(QtWidgets.QWidget):
         set_setting('window.size.width', self.width())
         set_setting('window.size.height', self.height())
 
-        set_setting('files.grammars', [x.file for x in self.grammars])
-        set_setting('files.transformers', [x.file for x in self.transformers])
-        set_setting('files.contents', [x.file for x in self.contents])
+        set_setting('grammars.files', [x.file for x in self.grammars])
+        set_setting('transformers.files', [x.file for x in self.transformers])
+        set_setting('contents.files', [x.file for x in self.contents])
+
+        set_setting('grammars.active_tab', self.grammar_tabs.currentIndex())
+        set_setting('transformers.active_tab', self.transformer_tabs.currentIndex())
+        set_setting('contents.active_tab', self.content_tabs.currentIndex())
 
         # save setting
-        text = json.dumps(settings, indent=1)
+        text = json.dumps(settings, indent=1, sort_keys=True)
         utils.write_text(settings_file, text)
 
         event.accept()
@@ -480,14 +527,7 @@ if __name__ == '__main__':
     app.setWindowIcon(load_icon('app'))
 
     main_window = MainWindow()
-    # TODO icon
-    main_window.setWindowTitle('Lark Tester')
     main_window.show()
-
-    # read developer.md
-    content = ''
-    main_window.set_content(content)
-    main_window.set_grammar(content)
     main_window.update.connect(partial(update, main_window))
 
     # start Qt app execution
