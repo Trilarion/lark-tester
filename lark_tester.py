@@ -8,7 +8,7 @@ import os
 from functools import partial
 import pprint
 import json
-from lark import Lark, Transformer, Discard
+from lark import Lark, Transformer, Discard, v_args
 from PyQt5 import QtWidgets, QtCore, QtGui
 import utils
 
@@ -152,67 +152,6 @@ class TabWidget(QtWidgets.QTabWidget):
             super().keyPressEvent(e)
 
 
-class SearchWindow(QtWidgets.QWidget):
-    """
-    Search window
-    """
-
-    def __init__(self, parent):
-        """
-        Sets up the search window.
-        """
-        super().__init__(parent)
-        self.setWindowTitle('Search')
-        self.setWindowFlags(QtCore.Qt.Window | QtCore.Qt.WindowStaysOnTopHint | QtCore.Qt.SubWindow | QtCore.Qt.WindowCloseButtonHint)
-        self.setMinimumWidth(300)
-
-        self.search_input = QtWidgets.QLineEdit()
-
-        layout = QtWidgets.QVBoxLayout(self)
-        layout.addWidget(self.search_input)
-
-        self.button_find = QtWidgets.QPushButton('Find')
-        self.button_find.pressed.connect(self.find)
-        self.button_cancel = QtWidgets.QPushButton('Cancel')
-        self.button_cancel.pressed.connect(self.close)
-        l = QtWidgets.QHBoxLayout()
-        l.setContentsMargins(0, 0, 0, 0)
-        l.addStretch()
-        l.addWidget(self.button_cancel)
-        l.addWidget(self.button_find)
-
-        layout.addLayout(l)
-
-    def start(self, target):
-        self.target = target
-        self.search_input.setText('')
-        self.show()
-
-    def find(self):
-        search_text = self.search_input.text()
-        if search_text:
-            cursor = self.target.textCursor()
-            current_position = cursor.position()
-            text = self.target.toPlainText()
-            search_position = text.find(search_text, current_position)
-            if search_position != -1:
-                cursor.setPosition(search_position)
-                self.target.setTextCursor(cursor)
-                self.target.setFocus()
-                self.parent().setFocus()
-
-    def keyPressEvent(self, e: QtGui.QKeyEvent) -> None:
-        """
-        Directly select tabs with Ctrl+Digit
-        """
-        if e.key() == QtCore.Qt.Key_Enter:
-            self.button_find.click()
-        elif e.key() == QtCore.Qt.Key_Escape:
-            self.button_cancel.click()
-        else:
-            super().keyPressEvent(e)
-
-
 class SettingsWindow(QtWidgets.QWidget):
     """
     Settings window.
@@ -351,6 +290,77 @@ class PythonHighlighter(QtGui.QSyntaxHighlighter):
                 self.setFormat(match.capturedStart(), match.capturedLength(), fmt)
 
 
+class SearchWidget(QtWidgets.QWidget):
+    """
+
+    """
+
+    def __init__(self):
+        """
+
+        """
+        super().__init__()
+        layout = QtWidgets.QHBoxLayout(self)
+        self.edit = QtWidgets.QLineEdit()
+        self.edit.setMaximumWidth(500)
+        self.edit.textEdited.connect(self.update_search)
+        self.button_prev = QtWidgets.QPushButton('<')
+        self.button_prev.setFixedWidth(24)
+        self.button_next = QtWidgets.QPushButton('>')
+        self.button_next.setFixedWidth(24)
+        self.target = None
+
+        layout.addWidget(QtWidgets.QLabel('Search'))
+        layout.addWidget(self.edit)
+        layout.addWidget(self.button_prev)
+        layout.addWidget(self.button_next)
+        layout.addStretch()
+
+        self.fmt = QtGui.QTextCharFormat()
+        self.fmt.setBackground(QtCore.Qt.yellow)
+
+    def start_search(self, target):
+        self.target = target
+        self.edit.setFocus()
+        self.edit.setText('')
+        self.update_search()
+        self.show()
+
+    def update_search(self):
+        search_text = self.edit.text()
+        if search_text == '':
+            self.reset_search()
+        else:
+            document = self.target.document()
+            cursor = self.target.cursorForPosition(QtCore.QPoint(0, 0))
+            extra_selections = []
+            while True:
+                cursor = document.find(search_text, cursor.position())
+                if cursor.position() == -1:
+                    break
+                extra_selection = QtWidgets.QTextEdit.ExtraSelection()
+                extra_selection.cursor = cursor
+                extra_selection.format = self.fmt
+                extra_selections.append(extra_selection)
+            self.target.setExtraSelections(extra_selections)
+
+    def reset_search(self):
+        self.button_prev.setDisabled(True)
+        self.button_next.setDisabled(True)
+        self.target.setExtraSelections([])
+
+    def keyPressEvent(self, e: QtGui.QKeyEvent) -> None:
+        """
+
+        """
+        if e.key() == QtCore.Qt.Key_Escape:
+            self.reset_search()
+            self.hide()
+            self.target.setFocus()
+        else:
+            super().keyPressEvent(e)
+
+
 class MainWindow(QtWidgets.QWidget):
     """
 
@@ -471,8 +481,9 @@ class MainWindow(QtWidgets.QWidget):
         # settings window
         self.settings_window = SettingsWindow(self)
 
-        # search window
-        self.search_window = SearchWindow(self)
+        # search area
+        self.search_area = SearchWidget()
+        self.search_area.hide()
 
         # top toolbar
         toolbar = QtWidgets.QToolBar(self)
@@ -546,6 +557,7 @@ class MainWindow(QtWidgets.QWidget):
         # layout
         layout = QtWidgets.QVBoxLayout(self)
         layout.addWidget(toolbar)
+        layout.addWidget(self.search_area)
         layout.addWidget(self.column_splitter, stretch=1)
         layout.addWidget(self.statusbar)
 
@@ -554,6 +566,9 @@ class MainWindow(QtWidgets.QWidget):
 
     def grammar(self):
         return self.grammars[self.grammar_tabs.currentIndex()].toPlainText()
+
+    def transformer(self):
+        return self.transformers[self.transformer_tabs.currentIndex()].toPlainText()
 
     def set_parsed(self, text):
         self.parsed.setPlainText(text)
@@ -580,9 +595,14 @@ class MainWindow(QtWidgets.QWidget):
             focus.save()
 
     def search_action(self):
-        focus = self.focusWidget()
-        if isinstance(focus, QtWidgets.QTextEdit):
-            self.search_window.start(focus)
+        if self.search_area.isVisible():
+            # if the search area is visible, hide it again
+            self.search_area.hide()
+        else:
+            # if the search area is hidden, and the focus is on a certain window, show it and set the focus
+            focus = self.focusWidget()
+            if isinstance(focus, QtWidgets.QTextEdit):
+                self.search_area.start_search(focus)
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
         """
@@ -620,11 +640,19 @@ class MainWindow(QtWidgets.QWidget):
 
 
 def update(main_window):
+    """
+    One complete Lark run.
+    :param main_window:
+    :return:
+    """
+    grammar = main_window.grammar()
+    transformer = main_window.transformer()
+    content = main_window.content()
     try:
-        parser = Lark(main_window.grammar(), debug=False)
-        text = main_window.content()
-        tree = parser.parse(text)
-        # obj = Transformer().transform(tree)
+        parser = Lark(grammar, debug=False)
+        tree = parser.parse(content)
+        exec(transformer, globals(), globals())
+        obj = MyTransformer().transform(tree)
     except Exception as e:
         main_window.set_parsed(str(e))
         main_window.show_message('error occurred')
@@ -632,7 +660,7 @@ def update(main_window):
     else:
         main_window.set_parsed(tree.pretty())
         transformed = pprint.pformat('', indent=4, width=120, compact=True)
-        main_window.set_transformed(transformed)
+        main_window.set_transformed(str(obj))
 
 
 def load_icon(name):

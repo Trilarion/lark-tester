@@ -4,13 +4,16 @@ A small GUI written in PyQt for rapid development and testing of [Lark parser](h
 
 ### Keyboard shortcuts
 
-- F1 : Show help window
-- F5 : Parse and transform
-- Ctrl+F : Search
-- Ctrl+L : Load
-- Ctrl+N : New
-- Ctrl+S : Save
-- Ctrl+(1,2,..) : Select a tab in the grammar/transformer/content areas
+- F1 : Shows help window
+- F5 : Executes a parse and transform the content with Lark run
+- Ctrl+F : Toggles search area
+- Ctrl+L : Loads from file in actual tab window
+- Ctrl+N : Creates new/empty content in actual tab window
+- Ctrl+S : Saves actual tab window content to file
+- Ctrl+(1,2,..) : Selects a specific tab in the grammar/transformer/content areas
+
+Within a editable text window undo (Ctrl+Z), redo (Ctrl+Y), cut (Ctrl+X), copy (Ctrl+C), paste (Ctrl+V),
+select all (Ctrl+A) are available.
 
 
 
