@@ -10,7 +10,7 @@ import pprint
 import json
 from lark import Lark, Transformer, Discard, v_args
 from PyQt5 import QtWidgets, QtCore, QtGui
-import utils
+import common
 
 lark_parsers = ('Earley', 'LALR(1)', 'CYK Parser')
 
@@ -37,7 +37,7 @@ default_settings = {
 }
 
 
-class TextEdit(QtWidgets.QTextEdit):
+class TextEdit(common.CodeEditor):
     """
 
     """
@@ -46,8 +46,7 @@ class TextEdit(QtWidgets.QTextEdit):
         """
 
         """
-        super().__init__()
-        self.setAcceptRichText(False)
+        super().__init__(True)
         self.file = None
         self.read_content = ''
         if not mode in ('grammar', 'transformer', 'content'):
@@ -97,7 +96,7 @@ class TextEdit(QtWidgets.QTextEdit):
 
         # file exists, we should load it
         settings['path.current'] =  os.path.dirname(file)
-        content = utils.read_text(file)
+        content = common.read_text(file)
         self.file = file
         self.read_content = content
 
@@ -120,7 +119,7 @@ class TextEdit(QtWidgets.QTextEdit):
         # we should save
         settings['path.current'] = os.path.dirname(file)
         content = self.toPlainText()
-        utils.write_text(file, content)
+        common.write_text(file, content)
         self.file = file
         self.read_content = content
 
@@ -304,20 +303,26 @@ class SearchWidget(QtWidgets.QWidget):
         self.edit = QtWidgets.QLineEdit()
         self.edit.setMaximumWidth(500)
         self.edit.textEdited.connect(self.update_search)
-        self.button_prev = QtWidgets.QPushButton('<')
-        self.button_prev.setFixedWidth(24)
+        self.button_previous = QtWidgets.QPushButton('<')
+        self.button_previous.setFixedWidth(24)
+        self.button_previous.pressed.connect(self.previous_action)
         self.button_next = QtWidgets.QPushButton('>')
         self.button_next.setFixedWidth(24)
+        self.button_next.pressed.connect(self.next_action)
         self.target = None
 
         layout.addWidget(QtWidgets.QLabel('Search'))
         layout.addWidget(self.edit)
-        layout.addWidget(self.button_prev)
+        layout.addWidget(self.button_previous)
         layout.addWidget(self.button_next)
         layout.addStretch()
 
-        self.fmt = QtGui.QTextCharFormat()
-        self.fmt.setBackground(QtCore.Qt.yellow)
+        self.fmt_all = QtGui.QTextCharFormat()
+        self.fmt_all.setBackground(QtCore.Qt.yellow)
+
+        self.fmt_current = QtGui.QTextCharFormat()
+        self.fmt_current.setBackground(QtCore.Qt.blue)
+        self.fmt_current.setForeground(QtCore.Qt.white)
 
     def start_search(self, target):
         self.target = target
@@ -332,21 +337,43 @@ class SearchWidget(QtWidgets.QWidget):
             self.reset_search()
         else:
             document = self.target.document()
-            cursor = self.target.cursorForPosition(QtCore.QPoint(0, 0))
+
+            # find all occurrences of the search string in the document and highlight them
+            cursor = self.target.textCursor()
+            cursor.setPosition(0)
             extra_selections = []
             while True:
-                cursor = document.find(search_text, cursor.position())
+                cursor = document.find(search_text, cursor)
                 if cursor.position() == -1:
                     break
                 extra_selection = QtWidgets.QTextEdit.ExtraSelection()
                 extra_selection.cursor = cursor
-                extra_selection.format = self.fmt
+                extra_selection.format = self.fmt_all
                 extra_selections.append(extra_selection)
             self.target.setExtraSelections(extra_selections)
 
+    def previous_action(self):
+        pass
+
+    def next_action(self):
+        search_text = self.edit.text()
+        cursor = self.target.textCursor()
+        document = self.target.document()
+        cursor = document.find(search_text, cursor)
+        if cursor.position() == -1:
+            return
+        extra_selections = self.target.extraSelections()
+        extra_selection = QtWidgets.QTextEdit.ExtraSelection()
+        extra_selection.cursor = cursor
+        extra_selection.format = self.fmt_current
+        extra_selections.append(extra_selection)
+
+        self.target.setExtraSelections(extra_selections)
+        self.target.setTextCursor(cursor)
+
     def reset_search(self):
-        self.button_prev.setDisabled(True)
-        self.button_next.setDisabled(True)
+        # self.button_prev.setDisabled(True)
+        # self.button_next.setDisabled(True)
         self.target.setExtraSelections([])
 
     def keyPressEvent(self, e: QtGui.QKeyEvent) -> None:
@@ -381,25 +408,25 @@ class MainWindow(QtWidgets.QWidget):
 
         font = QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.FixedFont)
         font_metrics = QtGui.QFontMetrics(font)
-        tabstopwidth = 4 * font_metrics.width(' ')
+        tabstopwidth = 4 * font_metrics.horizontalAdvance(' ')
 
         wrap_lines = settings['options.edit.wrap_lines']
 
         grammar_groupbox = QtWidgets.QGroupBox('Grammar')
         self.grammar_tabs = TabWidget()
         self.grammars = []
+        self.grammar_highlighters = []
         files = settings['grammar.files']
         for i in range(number_tabs):
             edit = TextEdit(mode='grammar')
             edit.setFont(font)
             edit.setTabStopWidth(tabstopwidth)
             if not wrap_lines:
-                edit.setLineWrapMode(QtWidgets.QTextEdit.NoWrap)
+                edit.setLineWrapMode(QtWidgets.QPlainTextEdit.NoWrap)
             edit.load(files[i])  # load them all initially
             self.grammar_tabs.addTab(edit, '{}'.format(i+1))
             self.grammars.append(edit)
-            # syntax highlighter
-            LarkHighlighter(edit)
+            self.grammar_highlighters.append(LarkHighlighter(edit.document()))
         self.grammar_tabs.setCurrentIndex(settings['grammar.active_tab'])
         l = QtWidgets.QVBoxLayout()
         l.addWidget(self.grammar_tabs)
@@ -409,18 +436,18 @@ class MainWindow(QtWidgets.QWidget):
         transformer_groupbox = QtWidgets.QGroupBox('Transformer')
         self.transformer_tabs = TabWidget()
         self.transformers = []
+        self.transformer_highlighters = []
         files = settings['transformer.files']
         for i in range(number_tabs):
             edit = TextEdit(mode='transformer')
             edit.setFont(font)
             edit.setTabStopWidth(tabstopwidth)
             if not wrap_lines:
-                edit.setLineWrapMode(QtWidgets.QTextEdit.NoWrap)
+                edit.setLineWrapMode(QtWidgets.QPlainTextEdit.NoWrap)
             edit.load(files[i])  # load them all initially
             self.transformer_tabs.addTab(edit, '{}'.format(i+1))
             self.transformers.append(edit)
-            # syntax highlighter
-            PythonHighlighter(edit)
+            self.transformer_highlighters.append(PythonHighlighter(edit.document()))
         self.transformer_tabs.setCurrentIndex(settings['transformer.active_tab'])
         l = QtWidgets.QVBoxLayout()
         l.addWidget(self.transformer_tabs)
@@ -436,7 +463,7 @@ class MainWindow(QtWidgets.QWidget):
             edit.setFont(font)
             edit.setTabStopWidth(tabstopwidth)
             if not wrap_lines:
-                edit.setLineWrapMode(QtWidgets.QTextEdit.NoWrap)
+                edit.setLineWrapMode(QtWidgets.QPlainTextEdit.NoWrap)
             edit.load(files[i])  # load them all initially
             self.content_tabs.addTab(edit, '{}'.format(i+1))
             self.contents.append(edit)
@@ -447,24 +474,24 @@ class MainWindow(QtWidgets.QWidget):
 
         # parsed tree output
         parsed_groupbox = QtWidgets.QGroupBox('Parsed Tree')
-        self.parsed = QtWidgets.QTextEdit()
+        self.parsed = QtWidgets.QPlainTextEdit()
         self.parsed.setReadOnly(True)
         self.parsed.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse | QtCore.Qt.TextSelectableByKeyboard)
         self.parsed.setFont(font)
         if not wrap_lines:
-            self.parsed.setLineWrapMode(QtWidgets.QTextEdit.NoWrap)
+            self.parsed.setLineWrapMode(QtWidgets.QPlainTextEdit.NoWrap)
         l = QtWidgets.QVBoxLayout()
         l.addWidget(self.parsed)
         parsed_groupbox.setLayout(l)
 
         # transformed output
         transformed_groupbox = QtWidgets.QGroupBox('Transformed')
-        self.transformed = QtWidgets.QTextEdit()
+        self.transformed = QtWidgets.QPlainTextEdit()
         self.transformed.setReadOnly(True)
         self.transformed.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse | QtCore.Qt.TextSelectableByKeyboard)
         self.transformed.setFont(font)
         if not wrap_lines:
-            self.transformed.setLineWrapMode(QtWidgets.QTextEdit.NoWrap)
+            self.transformed.setLineWrapMode(QtWidgets.QPlainTextEdit.NoWrap)
         l = QtWidgets.QVBoxLayout()
         l.addWidget(self.transformed)
         transformed_groupbox.setLayout(l)
@@ -597,11 +624,12 @@ class MainWindow(QtWidgets.QWidget):
     def search_action(self):
         if self.search_area.isVisible():
             # if the search area is visible, hide it again
+            self.search_area.reset_search()
             self.search_area.hide()
         else:
             # if the search area is hidden, and the focus is on a certain window, show it and set the focus
             focus = self.focusWidget()
-            if isinstance(focus, QtWidgets.QTextEdit):
+            if isinstance(focus, QtWidgets.QPlainTextEdit):
                 self.search_area.start_search(focus)
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
@@ -634,7 +662,7 @@ class MainWindow(QtWidgets.QWidget):
 
         # save setting
         text = json.dumps(settings, indent=1, sort_keys=True)
-        utils.write_text(settings_file, text)
+        common.write_text(settings_file, text)
 
         event.accept()
 
@@ -680,13 +708,13 @@ if __name__ == '__main__':
     root_path = os.path.dirname(__file__)
 
     # read readme file (for the help window)
-    readme_text = utils.read_text(os.path.join(root_path, 'README.md'))
+    readme_text = common.read_text(os.path.join(root_path, 'README.md'))
 
     # read settings
     settings_file = os.path.join(root_path, 'settings.json')
     settings = default_settings
     try:
-        text = utils.read_text(settings_file)
+        text = common.read_text(settings_file)
         settings = json.loads(text)
         # we delete all keys in settings that are not in default_settings (cleanup obsolete keys)
         settings = {k: v for k, v in settings.items() if k in default_settings}
