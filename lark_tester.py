@@ -1,5 +1,5 @@
 """
-  Lark grammar tester with a convenient GUI based on PyQt.
+  Lark grammar tester with a convenient GUI based on PyQt5.
   For more information, see README.md.
 """
 
@@ -18,12 +18,17 @@ minimal_window_size = (1200, 800)
 
 number_tabs = 4
 
+automatic_save_preferences = ['Ask for every open file', 'Always save', 'Never save']
+
 default_settings = {
     'options.edit.tabs.replace': True,
     'options.edit.tabs.replacement_spaces': 4,
     'options.edit.wrap_lines': True,
+    'options.edit.show_line_numbers': True,
+    'options.edit.automatic_save_preference': 0,
     'options.lark.parser': lark_parsers[0],
     'options.lark.starting_rule': 'start',
+    'options.transformed.pprint_options': 'indent:4,width:120,compact:True',
     'window.size.width': minimal_window_size[0],
     'window.size.height': minimal_window_size[1],
     'window.splitter.columns.size': None,
@@ -46,7 +51,7 @@ class TextEdit(common.CodeEditor):
         """
 
         """
-        super().__init__(True)
+        super().__init__(settings['options.edit.show_line_numbers'])
         self.file = None
         self.read_content = ''
         if not mode in ('grammar', 'transformer', 'content'):
@@ -164,6 +169,7 @@ class SettingsWindow(QtWidgets.QWidget):
         self.setWindowTitle('Properties')
         self.setWindowModality(QtCore.Qt.WindowModal)
         self.setWindowFlags(QtCore.Qt.Window)
+        self.setMinimumWidth(600)
 
         # Lark group box
         lark_groupbox = QtWidgets.QGroupBox('Lark')
@@ -189,16 +195,31 @@ class SettingsWindow(QtWidgets.QWidget):
         self.edit_number_spaces.setValue(settings['options.edit.tabs.replacement_spaces'])
         self.edit_wrap_lines = QtWidgets.QCheckBox()
         self.edit_wrap_lines.setChecked(settings['options.edit.wrap_lines'])
+        self.edit_show_line_numbers = QtWidgets.QCheckBox()
+        self.edit_show_line_numbers.setChecked(settings['options.edit.show_line_numbers'])
+        self.edit_automatic_save = QtWidgets.QComboBox()
+        self.edit_automatic_save.addItems(automatic_save_preferences)
+        self.edit_automatic_save.setCurrentIndex(settings['options.edit.automatic_save_preference'])
 
         l = QtWidgets.QFormLayout(edits_groupbox)
         l.addRow('Replace tabs', self.edit_replace_tabs)
         l.addRow('with how many spaces', self.edit_number_spaces)
         l.addRow('Wrap lines', self.edit_wrap_lines)
+        l.addRow('Show line numbers', self.edit_show_line_numbers)
+        l.addRow('Automatic save on exit', self.edit_automatic_save)
+
+        # output group box
+        output_groupbox = QtWidgets.QGroupBox('Output')
+        self.output_transformed_pprint = QtWidgets.QLineEdit(settings['options.transformed.pprint_options'])
+
+        l = QtWidgets.QFormLayout(output_groupbox)
+        l.addRow('Transformed pprint arguments', self.output_transformed_pprint)
 
         # put all the group boxes in one layout
         layout = QtWidgets.QVBoxLayout(self)
         layout.addWidget(lark_groupbox)
         layout.addWidget(edits_groupbox)
+        layout.addWidget(output_groupbox)
         layout.addStretch()
 
     def closeEvent(self, a0: QtGui.QCloseEvent) -> None:
@@ -211,6 +232,9 @@ class SettingsWindow(QtWidgets.QWidget):
         settings['options.edit.tabs.replace'] = self.edit_replace_tabs.isChecked()
         settings['options.edit.tabs.replacement_spaces'] = self.edit_number_spaces.value()
         settings['options.edit.wrap_lines'] = self.edit_wrap_lines.isChecked()
+        settings['options.edit.show_line_numbers'] = self.edit_show_line_numbers.isChecked()
+        settings['options.edit.automatic_save_preference'] = self.edit_automatic_save.currentIndex()
+        settings['options.transformed.pprint_options'] = self.output_transformed_pprint.text()
 
 
 class LarkHighlighter(QtGui.QSyntaxHighlighter):
@@ -302,7 +326,7 @@ class SearchWidget(QtWidgets.QWidget):
         layout = QtWidgets.QHBoxLayout(self)
         self.edit = QtWidgets.QLineEdit()
         self.edit.setMaximumWidth(500)
-        self.edit.textEdited.connect(self.update_search)
+        self.edit.textChanged.connect(self.update_search)
         self.button_previous = QtWidgets.QPushButton('<')
         self.button_previous.setFixedWidth(24)
         self.button_previous.pressed.connect(self.previous_action)
@@ -310,6 +334,8 @@ class SearchWidget(QtWidgets.QWidget):
         self.button_next.setFixedWidth(24)
         self.button_next.pressed.connect(self.next_action)
         self.target = None
+        self.all_extra_selections = []
+        self.current_extra_selection = []
 
         layout.addWidget(QtWidgets.QLabel('Search'))
         layout.addWidget(self.edit)
@@ -326,22 +352,21 @@ class SearchWidget(QtWidgets.QWidget):
 
     def start_search(self, target):
         self.target = target
-        self.edit.setFocus()
         self.edit.setText('')
-        self.update_search()
-        self.show()
+        self.edit.setFocus()
 
     def update_search(self):
         search_text = self.edit.text()
-        if search_text == '':
-            self.reset_search()
-        else:
+
+        self.all_extra_selections = []
+        self.current_extra_selection = []
+
+        if search_text:
             document = self.target.document()
 
             # find all occurrences of the search string in the document and highlight them
             cursor = self.target.textCursor()
             cursor.setPosition(0)
-            extra_selections = []
             while True:
                 cursor = document.find(search_text, cursor)
                 if cursor.position() == -1:
@@ -349,39 +374,71 @@ class SearchWidget(QtWidgets.QWidget):
                 extra_selection = QtWidgets.QTextEdit.ExtraSelection()
                 extra_selection.cursor = cursor
                 extra_selection.format = self.fmt_all
-                extra_selections.append(extra_selection)
-            self.target.setExtraSelections(extra_selections)
+                self.all_extra_selections.append(extra_selection)
+
+        self.update()
+
+    def update_current(self, mode):
+        search_text = self.edit.text()
+
+        self.current_extra_selection = []
+
+        if search_text:
+
+            cursor = self.target.textCursor()
+            document = self.target.document()
+            if mode == 'forward':
+                cursor = document.find(search_text, cursor)
+            else:
+                cursor = document.find(search_text, cursor, QtGui.QTextDocument.FindBackward)
+
+            if cursor.position() != -1:
+
+                extra_selection = QtWidgets.QTextEdit.ExtraSelection()
+                extra_selection.cursor = cursor
+                extra_selection.format = self.fmt_current
+                self.current_extra_selection = [extra_selection]
+
+                if mode == 'forward':
+                    cursor.clearSelection()
+                else:
+                    cursor.setPosition(cursor.anchor())
+                self.target.setTextCursor(cursor)
+
+        self.update()
 
     def previous_action(self):
-        pass
+        self.update_current('backward')
 
     def next_action(self):
+        self.update_current('forward')
+
+    def update(self):
+        self.target.setExtraSelections(self.all_extra_selections + self.current_extra_selection)
+
+        # determine if search forward, backward is possible
+        previous_search_possible = False
+        next_search_possible = False
         search_text = self.edit.text()
-        cursor = self.target.textCursor()
-        document = self.target.document()
-        cursor = document.find(search_text, cursor)
-        if cursor.position() == -1:
-            return
-        extra_selections = self.target.extraSelections()
-        extra_selection = QtWidgets.QTextEdit.ExtraSelection()
-        extra_selection.cursor = cursor
-        extra_selection.format = self.fmt_current
-        extra_selections.append(extra_selection)
+        if search_text:
+            document = self.target.document()
+            cursor = self.target.textCursor()
+            cursor = document.find(search_text, cursor)
+            next_search_possible = cursor.position() != -1
+            cursor = self.target.textCursor()
+            cursor = document.find(search_text, cursor, QtGui.QTextDocument.FindBackward)
+            previous_search_possible = cursor.position() != -1
 
-        self.target.setExtraSelections(extra_selections)
-        self.target.setTextCursor(cursor)
-
-    def reset_search(self):
-        # self.button_prev.setDisabled(True)
-        # self.button_next.setDisabled(True)
-        self.target.setExtraSelections([])
+        # enable/disable buttons
+        self.button_previous.setEnabled(previous_search_possible)
+        self.button_next.setEnabled(next_search_possible)
 
     def keyPressEvent(self, e: QtGui.QKeyEvent) -> None:
         """
 
         """
         if e.key() == QtCore.Qt.Key_Escape:
-            self.reset_search()
+            self.edit.setText('')
             self.hide()
             self.target.setFocus()
         else:
@@ -474,7 +531,7 @@ class MainWindow(QtWidgets.QWidget):
 
         # parsed tree output
         parsed_groupbox = QtWidgets.QGroupBox('Parsed Tree')
-        self.parsed = QtWidgets.QPlainTextEdit()
+        self.parsed = common.CodeEditor(settings['options.edit.show_line_numbers'])
         self.parsed.setReadOnly(True)
         self.parsed.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse | QtCore.Qt.TextSelectableByKeyboard)
         self.parsed.setFont(font)
@@ -486,7 +543,7 @@ class MainWindow(QtWidgets.QWidget):
 
         # transformed output
         transformed_groupbox = QtWidgets.QGroupBox('Transformed')
-        self.transformed = QtWidgets.QPlainTextEdit()
+        self.transformed = common.CodeEditor(settings['options.edit.show_line_numbers'])
         self.transformed.setReadOnly(True)
         self.transformed.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse | QtCore.Qt.TextSelectableByKeyboard)
         self.transformed.setFont(font)
@@ -631,20 +688,26 @@ class MainWindow(QtWidgets.QWidget):
             focus = self.focusWidget()
             if isinstance(focus, QtWidgets.QPlainTextEdit):
                 self.search_area.start_search(focus)
+                self.search_area.show()
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
         """
 
         """
 
-        # check for modified files and ask if needed to save
-        for edits, name in ((self.grammars, 'Grammar'), (self.transformers, 'Transformer'), (self.contents, 'Content')):
-            for i in range(len(edits)):
-                edit = edits[i]
-                if edit.is_modified():
-                    answer = QtWidgets.QMessageBox.warning(self, 'Unsaved modification', '{} tab {} contains unsaved modifications. Save?'.format(name, i), QtWidgets.QMessageBox.Ok | QtWidgets.QMessageBox.Cancel)
-                    if answer == QtWidgets.QMessageBox.Ok:
-                        edit.save()
+        # check for modified files and ask if needed to save or just save depending on the preference
+        if settings['options.edit.automatic_save_preference'] != 2:
+            for edits, name in ((self.grammars, 'Grammar'), (self.transformers, 'Transformer'), (self.contents, 'Content')):
+                for i in range(len(edits)):
+                    edit = edits[i]
+                    if edit.is_modified():
+                        if settings['options.edit.automatic_save_preference'] == 1:
+                            save = True
+                        else:
+                            answer = QtWidgets.QMessageBox.warning(self, 'Unsaved modification', '{} tab {} contains unsaved modifications. Save?'.format(name, i), QtWidgets.QMessageBox.Ok | QtWidgets.QMessageBox.Cancel)
+                            save = answer == QtWidgets.QMessageBox.Ok
+                        if save:
+                            edit.save()
 
         # update settings
         settings['window.size.width'] = self.width()
@@ -667,6 +730,18 @@ class MainWindow(QtWidgets.QWidget):
         event.accept()
 
 
+def convert_string(s):
+    if s == 'True':
+        return True
+    elif s == 'False':
+        return False
+    try:
+        return float(s)
+    except ValueError:
+        pass
+    return s
+
+
 def update(main_window):
     """
     One complete Lark run.
@@ -687,8 +762,15 @@ def update(main_window):
         print(e)
     else:
         main_window.set_parsed(tree.pretty())
-        transformed = pprint.pformat('', indent=4, width=120, compact=True)
-        main_window.set_transformed(str(obj))
+
+        kwargs = settings['options.transformed.pprint_options']
+        kwargs = kwargs.split(',')
+        kwargs = (x.split(':') for x in kwargs)
+        kwargs = {k: convert_string(v) for k, v in kwargs}
+
+        transformed = pprint.pformat(obj, **kwargs)
+        main_window.set_transformed(transformed)
+        # main_window.set_transformed(str(obj))
 
 
 def load_icon(name):
