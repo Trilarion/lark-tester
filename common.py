@@ -4,6 +4,7 @@ Common classes/methods not directly related to the project.
 
 from PyQt5 import QtWidgets, QtCore, QtGui
 
+
 def read_text(file):
     """
     Reads a whole text file (UTF-8 encoded).
@@ -103,3 +104,11 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
             top = bottom
             bottom = top + round(self.blockBoundingRect(block).height())
             blockNumber += 1
+
+    def setTextNoScroll(self, text):
+        """
+        Addition: Tries to keep the vertical scroll bar position when setting a new text.
+        """
+        vertical_scroll_position = self.verticalScrollBar().sliderPosition()
+        self.setPlainText(text)
+        self.verticalScrollBar().setSliderPosition(vertical_scroll_position)

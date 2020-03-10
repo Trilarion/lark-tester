@@ -5,30 +5,29 @@
 
 import sys
 import os
+from collections import OrderedDict
 from functools import partial
-import pprint
 import json
-from lark import Lark, Transformer, Discard, v_args
+from lark import Lark, Transformer, Discard, v_args  # Transformer, Discard, v_args might be used in the Transformer
 from PyQt5 import QtWidgets, QtCore, QtGui
 import common
 
-lark_parsers = ('Earley', 'LALR(1)', 'CYK Parser')
-
+# constants
+lark_parsers = ('earley', 'lalr', 'cyk')
+lark_parser_names = ('Earley', 'LALR(1)', 'CYK')
 minimal_window_size = (1200, 800)
-
 number_tabs = 4
-
 automatic_save_preferences = ['Ask for every open file', 'Always save', 'Never save']
 
+# default settings
 default_settings = {
     'options.edit.tabs.replace': True,
     'options.edit.tabs.replacement_spaces': 4,
     'options.edit.wrap_lines': True,
     'options.edit.show_line_numbers': True,
     'options.edit.automatic_save_preference': 0,
-    'options.lark.parser': lark_parsers[0],
+    'options.lark.parser': 0,
     'options.lark.starting_rule': 'start',
-    'options.transformed.pprint_options': 'indent:4,width:120,compact:True',
     'window.size.width': minimal_window_size[0],
     'window.size.height': minimal_window_size[1],
     'window.splitter.columns.size': None,
@@ -44,16 +43,15 @@ default_settings = {
 
 class TextEdit(common.CodeEditor):
     """
-
+    A code editor that can load and store text from and to file.
+    The mode is one of ('grammar', 'transformer', 'content') and influences the file filter.
     """
 
     def __init__(self, mode):
         """
-
+        Inits the widget. Sets the mode.
         """
         super().__init__(settings['options.edit.show_line_numbers'])
-        self.file = None
-        self.read_content = ''
         if not mode in ('grammar', 'transformer', 'content'):
             raise RuntimeError('unknown mode')
         self.mode = mode
@@ -63,10 +61,11 @@ class TextEdit(common.CodeEditor):
             self.file_filter = "Lark grammar (*.py);;All files (*.*)"
         else:
             self.file_filter = "All files (*.*)"
+        self.new()
 
     def keyPressEvent(self, e: QtGui.QKeyEvent) -> None:
         """
-        Replace tab inputs with spaces, if desired.
+        Replace tab inputs with spaces, if desired (for 'grammar' and 'transformer' mode only)
         """
         if self.mode in ('grammar', 'transformer') and settings['options.edit.tabs.replace'] and e.key() == QtCore.Qt.Key_Tab:
             self.insertPlainText(' ' * settings['options.edit.tabs.replacement_spaces'])
@@ -75,7 +74,7 @@ class TextEdit(common.CodeEditor):
 
     def new(self):
         """
-
+        Sets a new default text depending on the mode.
         """
         if self.mode == 'transformer':
             content = '# transformer\n\nclass MyTransformer(Transformer):\n    null = lambda self, _: None\n    true = lambda self, _: True\n    false = lambda self, _: False\n'
@@ -87,16 +86,21 @@ class TextEdit(common.CodeEditor):
         self.file = None
         self.read_content = ''
 
-    def load(self, *args):
-        if args:
-            file = args[0]
-            if not file or not os.path.isfile(file):
+    def load(self, file=None):
+        """
+        Loads content from a file.
+        :param file: If given, the file that content should be loaded from.
+        """
+        if file:
+            # check if file is existing, if not do nothing
+            if not os.path.isfile(file):
                 return
         else:
-            # show file open dialog
+            # no file specified, show file open dialog
             file = QtWidgets.QFileDialog.getOpenFileName(self, 'Open File', settings['path.current'], self.file_filter)
             file = file[0]
-            if not file:  # canceled in the dialog
+            #  if the open file dialog was canceled, do nothing
+            if not file:
                 return
 
         # file exists, we should load it
@@ -111,6 +115,9 @@ class TextEdit(common.CodeEditor):
         self.setPlainText(content)
 
     def save(self):
+        """
+        Saves the content to file (either specified before or asks for a name.).
+        """
         if self.file:
             file = self.file
         else:
@@ -118,6 +125,7 @@ class TextEdit(common.CodeEditor):
             file = QtWidgets.QFileDialog.getSaveFileName(self, 'Save File', settings['path.current'], self.file_filter)
             file = file[0]
 
+        #  if the open save dialog was canceled or no file is given, do nothing
         if not file:
             return
 
@@ -128,23 +136,23 @@ class TextEdit(common.CodeEditor):
         self.file = file
         self.read_content = content
 
-    def search(self):
-        pass
-
     def is_modified(self):
+        """
+        :return: True if the content has been modified since the last load/save operation.
+        """
         return self.read_content != self.toPlainText()
 
 
 class TabWidget(QtWidgets.QTabWidget):
     """
-
+    A tabwidget that can select a tab based on keyboard input Ctrl+Number.
     """
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
         """
-
+        Just
         """
-        super().__init__()
+        super().__init__(*args, **kwargs)
 
     def keyPressEvent(self, e: QtGui.QKeyEvent) -> None:
         """
@@ -175,8 +183,8 @@ class SettingsWindow(QtWidgets.QWidget):
         lark_groupbox = QtWidgets.QGroupBox('Lark')
 
         self.lark_parser_combobox = QtWidgets.QComboBox(self)
-        self.lark_parser_combobox.addItems(lark_parsers)
-        self.lark_parser_combobox.setCurrentText(settings['options.lark.parser'])
+        self.lark_parser_combobox.addItems(lark_parser_names)
+        self.lark_parser_combobox.setCurrentIndex(settings['options.lark.parser'])
 
         self.lark_start_rule_edit = QtWidgets.QLineEdit(settings['options.lark.starting_rule'])
 
@@ -208,24 +216,16 @@ class SettingsWindow(QtWidgets.QWidget):
         l.addRow('Show line numbers', self.edit_show_line_numbers)
         l.addRow('Automatic save on exit', self.edit_automatic_save)
 
-        # output group box
-        output_groupbox = QtWidgets.QGroupBox('Output')
-        self.output_transformed_pprint = QtWidgets.QLineEdit(settings['options.transformed.pprint_options'])
-
-        l = QtWidgets.QFormLayout(output_groupbox)
-        l.addRow('Transformed pprint arguments', self.output_transformed_pprint)
-
         # put all the group boxes in one layout
         layout = QtWidgets.QVBoxLayout(self)
         layout.addWidget(lark_groupbox)
         layout.addWidget(edits_groupbox)
-        layout.addWidget(output_groupbox)
         layout.addStretch()
 
     def closeEvent(self, a0: QtGui.QCloseEvent) -> None:
 
         # update settings
-        settings['options.lark.parser'] = self.lark_parser_combobox.currentText()
+        settings['options.lark.parser'] = self.lark_parser_combobox.currentIndex()
         starting_rule = self.lark_start_rule_edit.text()
         if starting_rule:
             settings['options.lark.starting_rule'] = starting_rule
@@ -234,7 +234,6 @@ class SettingsWindow(QtWidgets.QWidget):
         settings['options.edit.wrap_lines'] = self.edit_wrap_lines.isChecked()
         settings['options.edit.show_line_numbers'] = self.edit_show_line_numbers.isChecked()
         settings['options.edit.automatic_save_preference'] = self.edit_automatic_save.currentIndex()
-        settings['options.transformed.pprint_options'] = self.output_transformed_pprint.text()
 
 
 class LarkHighlighter(QtGui.QSyntaxHighlighter):
@@ -352,6 +351,7 @@ class SearchWidget(QtWidgets.QWidget):
 
     def start_search(self, target):
         self.target = target
+        self.target.textChanged.connect(self.update_search)
         self.edit.setText('')
         self.edit.setFocus()
 
@@ -655,13 +655,13 @@ class MainWindow(QtWidgets.QWidget):
         return self.transformers[self.transformer_tabs.currentIndex()].toPlainText()
 
     def set_parsed(self, text):
-        self.parsed.setPlainText(text)
+        self.parsed.setTextNoScroll(text)
 
     def set_transformed(self, text):
-        self.transformed.setPlainText(text)
+        self.transformed.setTextNoScroll(text)
 
     def show_message(self, text):
-        self.statusbar.showMessage(text)
+        self.statusbar.showMessage(text, 2000)
 
     def new_action(self):
         focus = self.focusWidget()
@@ -748,29 +748,32 @@ def update(main_window):
     :param main_window:
     :return:
     """
+    # first the parse
     grammar = main_window.grammar()
-    transformer = main_window.transformer()
     content = main_window.content()
     try:
-        parser = Lark(grammar, debug=False)
-        tree = parser.parse(content)
-        exec(transformer, globals(), globals())
-        obj = MyTransformer().transform(tree)
+        parser = Lark(grammar, start=settings['options.lark.starting_rule'], parser=lark_parsers[settings['options.lark.parser']], debug=False)
+        parsed_tree = parser.parse(content)
     except Exception as e:
         main_window.set_parsed(str(e))
-        main_window.show_message('error occurred')
-        print(e)
-    else:
-        main_window.set_parsed(tree.pretty())
+        main_window.show_message('Exception during parse')
 
-        kwargs = settings['options.transformed.pprint_options']
-        kwargs = kwargs.split(',')
-        kwargs = (x.split(':') for x in kwargs)
-        kwargs = {k: convert_string(v) for k, v in kwargs}
+        # no need to transform
+        main_window.set_transformed('')
+        return
+    main_window.set_parsed(parsed_tree.pretty())
 
-        transformed = pprint.pformat(obj, **kwargs)
-        main_window.set_transformed(transformed)
-        # main_window.set_transformed(str(obj))
+    # then transform
+    transformer = main_window.transformer()
+    try:
+        exec(transformer, globals(), globals())
+        transformed_object = MyTransformer().transform(parsed_tree)  # MyTransformer should be a resolved reference at runtime
+    except Exception as e:
+        main_window.set_transformed(str(e))
+        main_window.show_message('Exception during transform')
+        return
+    # main_window.set_transformed(str(transformed_object))
+    main_window.set_transformed('\n'.join((str(x) for x in transformed_object)))
 
 
 def load_icon(name):
@@ -809,12 +812,13 @@ if __name__ == '__main__':
 
     # create app
     app = QtWidgets.QApplication([])
-
     app.setWindowIcon(load_icon('app'))
 
+    # show main window
     main_window = MainWindow()
     main_window.show()
     main_window.update.connect(partial(update, main_window))
+    main_window.update.emit()
 
     # start Qt app execution
     sys.exit(app.exec_())
