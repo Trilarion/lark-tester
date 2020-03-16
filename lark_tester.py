@@ -5,7 +5,7 @@
 
 import sys
 import os
-from collections import OrderedDict
+import traceback
 from functools import partial
 import json
 from lark import Lark, Transformer, Discard, v_args  # Transformer, Discard, v_args might be used in the Transformer
@@ -55,13 +55,15 @@ class TextEdit(common.CodeEditor):
         if not mode in ('grammar', 'transformer', 'content'):
             raise RuntimeError('unknown mode')
         self.mode = mode
+        self.file = None
+        self.read_content = ''
         if self.mode == 'grammar':
             self.file_filter = "Lark grammar (*.lark);;All files (*.*)"
         elif self.mode == 'transformer':
             self.file_filter = "Lark grammar (*.py);;All files (*.*)"
         else:
             self.file_filter = "All files (*.*)"
-        self.new()
+
 
     def keyPressEvent(self, e: QtGui.QKeyEvent) -> None:
         """
@@ -223,6 +225,9 @@ class SettingsWindow(QtWidgets.QWidget):
         layout.addStretch()
 
     def closeEvent(self, a0: QtGui.QCloseEvent) -> None:
+        """
+        Need to save the state of the dialog in the settings when closed.
+        """
 
         # update settings
         settings['options.lark.parser'] = self.lark_parser_combobox.currentIndex()
@@ -238,11 +243,13 @@ class SettingsWindow(QtWidgets.QWidget):
 
 class LarkHighlighter(QtGui.QSyntaxHighlighter):
     """
-
+    Highlighter for the Lark Grammar. Follows the typical pattern for QSyntaxHightlighter and unfortunately doesn't use
+    Lark.
     """
 
     def __init__(self, *args, **kwargs):
         """
+        Defines the Basic rules as well as color schemes.
         """
         super().__init__(*args, **kwargs)
 
@@ -259,51 +266,9 @@ class LarkHighlighter(QtGui.QSyntaxHighlighter):
 
     def highlightBlock(self, text: str) -> None:
         """
-
-        :param text:
-        :return:
+        Highlights a block.
         """
 
-        for regex, fmt in self.rules:
-
-            i = regex.globalMatch(text)
-            while i.hasNext():
-                match = i.next()
-                self.setFormat(match.capturedStart(), match.capturedLength(), fmt)
-
-
-class PythonHighlighter(QtGui.QSyntaxHighlighter):
-    """
-
-    """
-
-    # Python keywords
-    keywords = [
-        'and', 'assert', 'break', 'class', 'continue', 'def',
-        'del', 'elif', 'else', 'except', 'exec', 'finally',
-        'for', 'from', 'global', 'if', 'import', 'in',
-        'is', 'lambda', 'not', 'or', 'pass', 'print',
-        'raise', 'return', 'try', 'while', 'yield',
-        'None', 'True', 'False',
-    ]
-
-    def __init__(self, *args, **kwargs):
-        """
-        """
-        super().__init__(*args, **kwargs)
-
-        # keywords in blue
-        self.rules = [(QtCore.QRegularExpression('\\b{}\\b'.format(keyword)), QtCore.Qt.blue) for keyword in PythonHighlighter.keywords]
-
-        # comments (from # till end of the line)
-        self.rules.append((QtCore.QRegularExpression('#.*'), QtCore.Qt.gray))
-
-    def highlightBlock(self, text: str) -> None:
-        """
-
-        :param text:
-        :return:
-        """
         for regex, fmt in self.rules:
 
             i = regex.globalMatch(text)
@@ -314,48 +279,64 @@ class PythonHighlighter(QtGui.QSyntaxHighlighter):
 
 class SearchWidget(QtWidgets.QWidget):
     """
-
+    The search widget.
     """
 
     def __init__(self):
         """
-
+        Sets up the widget.
         """
         super().__init__()
-        layout = QtWidgets.QHBoxLayout(self)
+
+        # line edit
         self.edit = QtWidgets.QLineEdit()
         self.edit.setMaximumWidth(500)
         self.edit.textChanged.connect(self.update_search)
+
+        # previous button
         self.button_previous = QtWidgets.QPushButton('<')
         self.button_previous.setFixedWidth(24)
         self.button_previous.pressed.connect(self.previous_action)
+
+        # next button
         self.button_next = QtWidgets.QPushButton('>')
         self.button_next.setFixedWidth(24)
         self.button_next.pressed.connect(self.next_action)
+
+        # internal parameters
         self.target = None
         self.all_extra_selections = []
         self.current_extra_selection = []
 
+        # layout window
+        layout = QtWidgets.QHBoxLayout(self)
         layout.addWidget(QtWidgets.QLabel('Search'))
         layout.addWidget(self.edit)
         layout.addWidget(self.button_previous)
         layout.addWidget(self.button_next)
         layout.addStretch()
 
-        self.fmt_all = QtGui.QTextCharFormat()
-        self.fmt_all.setBackground(QtCore.Qt.yellow)
+        # format for highlighting all search results
+        self.fmt_all = common.createTextCharFormat(background_color=QtCore.Qt.yellow)
 
-        self.fmt_current = QtGui.QTextCharFormat()
-        self.fmt_current.setBackground(QtCore.Qt.blue)
-        self.fmt_current.setForeground(QtCore.Qt.white)
+        # format for highlighting the next search result
+        self.fmt_current = common.createTextCharFormat(QtCore.Qt.white, QtCore.Qt.blue)
 
     def start_search(self, target):
+        """
+        Initializes itself with a new target and makes itself visible.
+        :param target: A derivative of QPlainTextEdit/QTextEdit
+        """
+        # TODO should we disconnect from the last target?
         self.target = target
         self.target.textChanged.connect(self.update_search)
         self.edit.setText('')
         self.edit.setFocus()
 
     def update_search(self):
+        """
+        The search text has changed. Update the selections.
+        """
         search_text = self.edit.text()
 
         self.all_extra_selections = []
@@ -379,6 +360,10 @@ class SearchWidget(QtWidgets.QWidget):
         self.update()
 
     def update_current(self, mode):
+        """
+        Updates the current selection.
+        :param mode: 'forward' or 'backward'
+        """
         search_text = self.edit.text()
 
         self.current_extra_selection = []
@@ -408,12 +393,21 @@ class SearchWidget(QtWidgets.QWidget):
         self.update()
 
     def previous_action(self):
+        """
+        Updates the current selection in backward direction.
+        """
         self.update_current('backward')
 
     def next_action(self):
+        """
+        Updates the current selection in forward direction.
+        """
         self.update_current('forward')
 
     def update(self):
+        """
+        Sets the updated selections on the target, tests if previous/next buttons should be enabled or disabled.
+        """
         self.target.setExtraSelections(self.all_extra_selections + self.current_extra_selection)
 
         # determine if search forward, backward is possible
@@ -433,21 +427,27 @@ class SearchWidget(QtWidgets.QWidget):
         self.button_previous.setEnabled(previous_search_possible)
         self.button_next.setEnabled(next_search_possible)
 
+    def reset_and_hide(self):
+        """
+        Resets the search text, hides the widget and returns the focus to the target.
+        """
+        self.edit.setText('')
+        self.hide()
+        self.target.setFocus()
+
     def keyPressEvent(self, e: QtGui.QKeyEvent) -> None:
         """
-
+        Whenever the escape key is pressed, we want to hide the search widget and abandon the search.
         """
         if e.key() == QtCore.Qt.Key_Escape:
-            self.edit.setText('')
-            self.hide()
-            self.target.setFocus()
+            self.reset_and_hide()
         else:
             super().keyPressEvent(e)
 
 
 class MainWindow(QtWidgets.QWidget):
     """
-
+    The main window of the Lark tester.
     """
 
     #: signal, update button has been pressed
@@ -459,16 +459,20 @@ class MainWindow(QtWidgets.QWidget):
         """
         super().__init__(*args, **kwargs)
 
+        # window size
         self.setMinimumSize(minimal_window_size[0], minimal_window_size[1])
         self.resize(settings['window.size.width'], settings['window.size.height'])
         self.setWindowTitle('Lark Tester')
 
+        # use a fixed size font
         font = QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.FixedFont)
         font_metrics = QtGui.QFontMetrics(font)
         tabstopwidth = 4 * font_metrics.horizontalAdvance(' ')
 
+        # options that are used multiple times
         wrap_lines = settings['options.edit.wrap_lines']
 
+        # grammar tabs
         grammar_groupbox = QtWidgets.QGroupBox('Grammar')
         self.grammar_tabs = TabWidget()
         self.grammars = []
@@ -480,8 +484,10 @@ class MainWindow(QtWidgets.QWidget):
             edit.setTabStopWidth(tabstopwidth)
             if not wrap_lines:
                 edit.setLineWrapMode(QtWidgets.QPlainTextEdit.NoWrap)
-            edit.load(files[i])  # load them all initially
+            if files[i]:
+                edit.load(files[i])
             self.grammar_tabs.addTab(edit, '{}'.format(i+1))
+            self.grammar_tabs.setTabToolTip(i, files[i])
             self.grammars.append(edit)
             self.grammar_highlighters.append(LarkHighlighter(edit.document()))
         self.grammar_tabs.setCurrentIndex(settings['grammar.active_tab'])
@@ -489,7 +495,7 @@ class MainWindow(QtWidgets.QWidget):
         l.addWidget(self.grammar_tabs)
         grammar_groupbox.setLayout(l)
 
-        # transformer box
+        # transformer tabs
         transformer_groupbox = QtWidgets.QGroupBox('Transformer')
         self.transformer_tabs = TabWidget()
         self.transformers = []
@@ -501,16 +507,17 @@ class MainWindow(QtWidgets.QWidget):
             edit.setTabStopWidth(tabstopwidth)
             if not wrap_lines:
                 edit.setLineWrapMode(QtWidgets.QPlainTextEdit.NoWrap)
-            edit.load(files[i])  # load them all initially
+            if files[i]:
+                edit.load(files[i])
             self.transformer_tabs.addTab(edit, '{}'.format(i+1))
             self.transformers.append(edit)
-            self.transformer_highlighters.append(PythonHighlighter(edit.document()))
+            self.transformer_highlighters.append(common.PythonHighlighter(edit.document()))
         self.transformer_tabs.setCurrentIndex(settings['transformer.active_tab'])
         l = QtWidgets.QVBoxLayout()
         l.addWidget(self.transformer_tabs)
         transformer_groupbox.setLayout(l)
 
-        # test content box
+        # test content tabs
         content_groupbox = QtWidgets.QGroupBox('Test content')
         self.content_tabs = TabWidget()
         self.contents = []
@@ -521,7 +528,8 @@ class MainWindow(QtWidgets.QWidget):
             edit.setTabStopWidth(tabstopwidth)
             if not wrap_lines:
                 edit.setLineWrapMode(QtWidgets.QPlainTextEdit.NoWrap)
-            edit.load(files[i])  # load them all initially
+            if files[i]:
+                edit.load(files[i])
             self.content_tabs.addTab(edit, '{}'.format(i+1))
             self.contents.append(edit)
         self.content_tabs.setCurrentIndex(settings['content.active_tab'])
@@ -646,43 +654,82 @@ class MainWindow(QtWidgets.QWidget):
         layout.addWidget(self.statusbar)
 
     def content(self):
+        """
+        Retrieves the content of the actual test content tab.
+        """
         return self.contents[self.content_tabs.currentIndex()].toPlainText()
 
     def grammar(self):
+        """
+        Retrieves the content of the actual grammar tab.
+        """
         return self.grammars[self.grammar_tabs.currentIndex()].toPlainText()
 
     def transformer(self):
+        """
+        Retrieves the content of the actual transformer tab.
+        """
         return self.transformers[self.transformer_tabs.currentIndex()].toPlainText()
 
     def set_parsed(self, text):
+        """
+        Sets the content of the parsed output edit area to text.
+        """
         self.parsed.setTextNoScroll(text)
 
     def set_transformed(self, text):
+        """
+        Sets the content of the transformed output area to text.
+        """
         self.transformed.setTextNoScroll(text)
 
     def show_message(self, text):
+        """
+        Shows temporarily a message in the status bar.
+        """
         self.statusbar.showMessage(text, 2000)
 
     def new_action(self):
+        """
+        The new content button has been pressed. If the focus is in one of the text edits on the left, call their
+        respective method to set new default content.
+        """
         focus = self.focusWidget()
         if isinstance(focus, TextEdit):
             focus.new()
+        else:
+            self.show_message('Cannot set new content here.')
 
     def load_action(self):
+        """
+        The load content button has been pressed. If the focus is in one of the text edits on the left, call their
+        respective method to load new content.
+        """
         focus = self.focusWidget()
         if isinstance(focus, TextEdit):
             focus.load()
+        else:
+            self.show_message('Cannot load content here.')
 
     def save_action(self):
+        """
+        The load content button has been pressed. If the focus is in one of the text edits on the left, call their
+        respective method to load new content.
+        """
         focus = self.focusWidget()
         if isinstance(focus, TextEdit):
             focus.save()
+        else:
+            self.show_message('Cannot save content here.')
 
     def search_action(self):
+        """
+        The search button has been pressed. If the search area is visible, stop the search and make it insisible.
+        """
+        raise RuntimeError('gotcha')
         if self.search_area.isVisible():
             # if the search area is visible, hide it again
-            self.search_area.reset_search()
-            self.search_area.hide()
+            self.search_area.reset_and_hide()
         else:
             # if the search area is hidden, and the focus is on a certain window, show it and set the focus
             focus = self.focusWidget()
@@ -692,9 +739,9 @@ class MainWindow(QtWidgets.QWidget):
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
         """
-
+        Before the main window (and with it the application) can be closed, we need to check for unsaved modifications
+        of the grammar/transformer/test content as well as storing the settings in a file.
         """
-
         # check for modified files and ask if needed to save or just save depending on the preference
         if settings['options.edit.automatic_save_preference'] != 2:
             for edits, name in ((self.grammars, 'Grammar'), (self.transformers, 'Transformer'), (self.contents, 'Content')):
@@ -730,23 +777,10 @@ class MainWindow(QtWidgets.QWidget):
         event.accept()
 
 
-def convert_string(s):
-    if s == 'True':
-        return True
-    elif s == 'False':
-        return False
-    try:
-        return float(s)
-    except ValueError:
-        pass
-    return s
-
-
 def update(main_window):
     """
     One complete Lark run.
-    :param main_window:
-    :return:
+    :param main_window: The main window to retrieve and set text.
     """
     # first the parse
     grammar = main_window.grammar()
@@ -755,7 +789,7 @@ def update(main_window):
         parser = Lark(grammar, start=settings['options.lark.starting_rule'], parser=lark_parsers[settings['options.lark.parser']], debug=False)
         parsed_tree = parser.parse(content)
     except Exception as e:
-        main_window.set_parsed(str(e))
+        main_window.set_parsed(traceback.format_exc())
         main_window.show_message('Exception during parse')
 
         # no need to transform
@@ -768,28 +802,41 @@ def update(main_window):
     try:
         exec(transformer, globals(), globals())
         transformed_object = MyTransformer().transform(parsed_tree)  # MyTransformer should be a resolved reference at runtime
+        if isinstance(transformed_object, (list, tuple)):
+            main_window.set_transformed('\n'.join((str(x) for x in transformed_object)))
+        elif isinstance(transformed_object, dict):
+            main_window.set_transformed('\n'.join(('{}: {}'.format(k, v) for k, v in transformed_object.items())))
+        else:
+            main_window.set_transformed(str(transformed_object))
     except Exception as e:
-        main_window.set_transformed(str(e))
+        main_window.set_transformed(traceback.format_exc())
         main_window.show_message('Exception during transform')
-        return
-    # main_window.set_transformed(str(transformed_object))
-    main_window.set_transformed('\n'.join((str(x) for x in transformed_object)))
 
 
 def load_icon(name):
     """
-
-    :param name:
-    :return:
+    Loads an icon (as QIcon) from our resources place.
+    :param name: Just the name part from the icon file.
+    :return: The QIcon.
     """
     path = os.path.join(root_path, 'resources', 'icon_' + name + '.png')
     icon = QtGui.QIcon(path)
     return icon
 
 
+def exception_hook(type, value, traceback):
+    """
+    Use sys.__excepthook__, the standard hook.
+    """
+    sys.__excepthook__(type, value, traceback)
+
+
 if __name__ == '__main__':
 
-    # root path
+    # fix PyQt5 eating exceptions (see http://stackoverflow.com/q/14493081/1536976)
+    sys.excepthook = exception_hook
+
+    # root path is file path
     root_path = os.path.dirname(__file__)
 
     # read readme file (for the help window)

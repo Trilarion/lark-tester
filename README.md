@@ -1,6 +1,8 @@
 # Lark parser tester
 
-A small GUI written in PyQt5 for rapid development and testing of [Lark parser](https://github.com/lark-parser/lark) grammars and transformers.
+A small Editor written in PyQt5 for rapid development and testing of [Lark parser](https://github.com/lark-parser/lark) grammars and transformers.
+
+## User guide
 
 ### Keyboard shortcuts
 
@@ -15,5 +17,6 @@ A small GUI written in PyQt5 for rapid development and testing of [Lark parser](
 Within a editable text window undo (Ctrl+Z), redo (Ctrl+Y), cut (Ctrl+X), copy (Ctrl+C), paste (Ctrl+V),
 select all (Ctrl+A) are available.
 
+## License
 
-
+The code is
