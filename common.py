@@ -118,20 +118,20 @@ def createTextCharFormat(foreground_color=None, background_color=None, style=Non
     """
     Return a QTextCharFormat with the given attributes.
     """
-    format = QtGui.QTextCharFormat()
+    char_format = QtGui.QTextCharFormat()
     if foreground_color:
-        format.setForeground(QtGui.QColor(foreground_color))
+        char_format.setForeground(QtGui.QColor(foreground_color))
 
     if background_color:
-        format.setBackground(QtGui.QColor(background_color))
+        char_format.setBackground(QtGui.QColor(background_color))
 
     if style:
         if 'bold' in style:
-            format.setFontWeight(QtGui.QFont.Bold)
+            char_format.setFontWeight(QtGui.QFont.Bold)
         if 'italic' in style:
-            format.setFontItalic(True)
+            char_format.setFontItalic(True)
 
-    return format
+    return char_format
 
 
 class PythonHighlighter(QtGui.QSyntaxHighlighter):
@@ -166,12 +166,12 @@ class PythonHighlighter(QtGui.QSyntaxHighlighter):
     operators = [
          '=',
          '==', '!=', '<', '<=', '>', '>=',  # Comparison
-         '\+', '-', '\*', '/', '//', '\%', '\*\*',  # Arithmetic
-         '\+=', '-=', '\*=', '/=', '\%=',  # In-place
-         '\^', '\|', '\&', '\~', '>>', '<<']  # Bitwise
+         r'\+', '-', r'\*', '/', '//', r'\%', r'\*\*',  # Arithmetic
+         r'\+=', '-=', r'\*=', '/=', r'\%=',  # In-place
+         r'\^', r'\|', r'\&', r'\~', '>>', '<<']  # Bitwise
 
     # Python braces
-    braces = ['\{', '\}', '\(', '\)', '\[', '\]']
+    braces = [r'\{', r'\}', r'\(', r'\)', r'\[', r'\]']
 
     def __init__(self, *args, **kwargs):
         """
@@ -207,7 +207,7 @@ class PythonHighlighter(QtGui.QSyntaxHighlighter):
             # 'class' followed by an identifier
             (r'\bclass\b\s*(\w+)', 1, PythonHighlighter.styles['defclass']),
 
-            # From '#' until a newline
+            # from '#' until a newline
             (r'#[^\n]*', 0, PythonHighlighter.styles['comment']),
 
             # Numeric literals

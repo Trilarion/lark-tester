@@ -1,6 +1,11 @@
 # Lark parser tester
 
-A small Editor written in PyQt5 for rapid development and testing of [Lark parser](https://github.com/lark-parser/lark) grammars and transformers.
+A small Editor using PyQt5 for rapid development and testing of [Lark parser](https://github.com/lark-parser/lark)
+grammars and transformers, featuring:
+
+- Multiples text edits for Lark grammars, transformers and test content with syntax highlighting, search as well as load
+  and save capability.
+- Display of parsed tree as well as transformed output.
 
 ## User guide
 
@@ -19,4 +24,4 @@ select all (Ctrl+A) are available.
 
 ## License
 
-The code is
+See [license](LICENSE) file.

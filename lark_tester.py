@@ -41,6 +41,24 @@ default_settings = {
 }
 
 
+def save_from_code_editor(widget: QtWidgets.QPlainTextEdit):
+    """
+    Saves the content to file.
+    """
+    # show file save dialog
+    file = QtWidgets.QFileDialog.getSaveFileName(widget, 'Save File', settings['path.current'], "All files (*.*)")
+    file = file[0]
+
+    #  if the open save dialog was canceled or no file is given, do nothing
+    if not file:
+        return
+
+    # we should save
+    settings['path.current'] = os.path.dirname(file)
+    content = widget.toPlainText()
+    common.write_text(file, content)
+
+
 class TextEdit(common.CodeEditor):
     """
     A code editor that can load and store text from and to file.
@@ -49,10 +67,10 @@ class TextEdit(common.CodeEditor):
 
     def __init__(self, mode):
         """
-        Inits the widget. Sets the mode.
+        Initializes the widget. Sets the mode.
         """
         super().__init__(settings['options.edit.show_line_numbers'])
-        if not mode in ('grammar', 'transformer', 'content'):
+        if mode not in ('grammar', 'transformer', 'content'):
             raise RuntimeError('unknown mode')
         self.mode = mode
         self.file = None
@@ -63,7 +81,6 @@ class TextEdit(common.CodeEditor):
             self.file_filter = "Lark grammar (*.py);;All files (*.*)"
         else:
             self.file_filter = "All files (*.*)"
-
 
     def keyPressEvent(self, e: QtGui.QKeyEvent) -> None:
         """
@@ -106,7 +123,7 @@ class TextEdit(common.CodeEditor):
                 return
 
         # file exists, we should load it
-        settings['path.current'] =  os.path.dirname(file)
+        settings['path.current'] = os.path.dirname(file)
         content = common.read_text(file)
         self.file = file
         self.read_content = content
@@ -243,9 +260,18 @@ class SettingsWindow(QtWidgets.QWidget):
 
 class LarkHighlighter(QtGui.QSyntaxHighlighter):
     """
-    Highlighter for the Lark Grammar. Follows the typical pattern for QSyntaxHightlighter and unfortunately doesn't use
+    Highlighter for the Lark Grammar. Follows the typical pattern for QSyntaxHighlighter and unfortunately doesn't use
     Lark.
     """
+
+    styles = {
+        'statement': common.createTextCharFormat('mediumblue', style='bold'),
+        'comment': common.createTextCharFormat('darkgray', style='italic')
+    }
+
+    statements = ('%ignore', '%import', '%declare')
+
+    operators = ('|', '?', '*', '+', '~')
 
     def __init__(self, *args, **kwargs):
         """
@@ -253,16 +279,19 @@ class LarkHighlighter(QtGui.QSyntaxHighlighter):
         """
         super().__init__(*args, **kwargs)
 
-        self.rules = []
+        rules = []
 
         # rules
-        self.rules.append((QtCore.QRegularExpression('[^_?!].+:'), QtCore.Qt.red))
+        rules += [(r'{}\b'.format(s), 'statement') for s in LarkHighlighter.statements]
 
-        # terminals
-        self.rules.append((QtCore.QRegularExpression('[A-Z].+'), QtCore.Qt.darkGreen))
+        rules += [
+            # from '#' until a newline
+            (r'\/\/[^\n]*', 'comment')
 
-        # comments (from // till end of the line)
-        self.rules.append((QtCore.QRegularExpression('\/\/.*'), QtCore.Qt.gray))
+            # alias
+        ]
+
+        self.rules = [(QtCore.QRegularExpression(pattern), LarkHighlighter.styles[format]) for (pattern, format) in rules]
 
     def highlightBlock(self, text: str) -> None:
         """
@@ -607,7 +636,7 @@ class MainWindow(QtWidgets.QWidget):
         toolbar.addAction(action)
 
         # search action
-        action = QtWidgets.QAction(load_icon('search'),'Search', self)
+        action = QtWidgets.QAction(load_icon('search'), 'Search', self)
         action.setShortcut(QtGui.QKeySequence(QtCore.Qt.CTRL + QtCore.Qt.Key_F))
         action.triggered.connect(self.search_action)
         toolbar.addAction(action)
@@ -719,14 +748,15 @@ class MainWindow(QtWidgets.QWidget):
         focus = self.focusWidget()
         if isinstance(focus, TextEdit):
             focus.save()
+        elif isinstance(focus, common.CodeEditor):
+            save_from_code_editor(focus)
         else:
             self.show_message('Cannot save content here.')
 
     def search_action(self):
         """
-        The search button has been pressed. If the search area is visible, stop the search and make it insisible.
+        The search button has been pressed. If the search area is visible, stop the search and make it invisible.
         """
-        raise RuntimeError('gotcha')
         if self.search_area.isVisible():
             # if the search area is visible, hide it again
             self.search_area.reset_and_hide()
