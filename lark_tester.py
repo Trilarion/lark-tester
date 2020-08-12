@@ -41,22 +41,38 @@ default_settings = {
 }
 
 
-def save_from_code_editor(widget: QtWidgets.QPlainTextEdit):
+class TextDisplay(common.CodeEditor):
     """
-    Saves the content to file.
+    A text display that can store text to file.
+    The mode is one of ('parsed', 'transformed').
     """
-    # show file save dialog
-    file = QtWidgets.QFileDialog.getSaveFileName(widget, 'Save File', settings['path.current'], "All files (*.*)")
-    file = file[0]
 
-    #  if the open save dialog was canceled or no file is given, do nothing
-    if not file:
-        return
+    def __init__(self, mode):
+        """
+        Initializes the widget. Sets the mode.
+        """
+        super().__init__(settings['options.edit.show_line_numbers'])
+        if mode not in ('parsed', 'transformed'):
+            raise RuntimeError('unknown mode')
+        self.mode = mode
+        self.file_filter = "All files (*.*)"
 
-    # we should save
-    settings['path.current'] = os.path.dirname(file)
-    content = widget.toPlainText()
-    common.write_text(file, content)
+    def save(self):
+        """
+        Saves the content to file.
+        """
+        # show file save dialog
+        file = QtWidgets.QFileDialog.getSaveFileName(self, 'Save {} to file'.format(self.mode), settings['path.current'], "All files (*.*)")
+        file = file[0]
+
+        #  if the open save dialog was canceled or no file is given, do nothing
+        if not file:
+            return
+
+        # we should save
+        settings['path.current'] = os.path.dirname(file)
+        content = self.toPlainText()
+        common.write_text(file, content)
 
 
 class TextEdit(common.CodeEditor):
@@ -65,7 +81,7 @@ class TextEdit(common.CodeEditor):
     The mode is one of ('grammar', 'transformer', 'content') and influences the file filter.
     """
 
-    def __init__(self, mode):
+    def __init__(self, mode, tooltip_changer):
         """
         Initializes the widget. Sets the mode.
         """
@@ -73,6 +89,7 @@ class TextEdit(common.CodeEditor):
         if mode not in ('grammar', 'transformer', 'content'):
             raise RuntimeError('unknown mode')
         self.mode = mode
+        self.tooltip_changer = tooltip_changer
         self.file = None
         self.read_content = ''
         if self.mode == 'grammar':
@@ -103,6 +120,7 @@ class TextEdit(common.CodeEditor):
             content = ''
         self.setPlainText(content)
         self.file = None
+        self.tooltip_changer(self.file)
         self.read_content = ''
 
     def load(self, file=None):
@@ -126,6 +144,7 @@ class TextEdit(common.CodeEditor):
         settings['path.current'] = os.path.dirname(file)
         content = common.read_text(file)
         self.file = file
+        self.tooltip_changer(self.file)
         self.read_content = content
 
         # replace tabs if desired and set as content
@@ -153,6 +172,7 @@ class TextEdit(common.CodeEditor):
         content = self.toPlainText()
         common.write_text(file, content)
         self.file = file
+        self.tooltip_changer(self.file)
         self.read_content = content
 
     def is_modified(self):
@@ -317,6 +337,9 @@ class SearchWidget(QtWidgets.QWidget):
         """
         super().__init__()
 
+        # label
+        self.label = QtWidgets.QLabel('')
+
         # line edit
         self.edit = QtWidgets.QLineEdit()
         self.edit.setMaximumWidth(500)
@@ -339,7 +362,7 @@ class SearchWidget(QtWidgets.QWidget):
 
         # layout window
         layout = QtWidgets.QHBoxLayout(self)
-        layout.addWidget(QtWidgets.QLabel('Search'))
+        layout.addWidget(self.label)
         layout.addWidget(self.edit)
         layout.addWidget(self.button_previous)
         layout.addWidget(self.button_next)
@@ -356,9 +379,11 @@ class SearchWidget(QtWidgets.QWidget):
         Initializes itself with a new target and makes itself visible.
         :param target: A derivative of QPlainTextEdit/QTextEdit
         """
-        # TODO should we disconnect from the last target?
+        # update target and connect
         self.target = target
         self.target.textChanged.connect(self.update_search)
+        # update display
+        self.label.setText('Search in ({})'.format(target.mode))
         self.edit.setText('')
         self.edit.setFocus()
 
@@ -460,6 +485,7 @@ class SearchWidget(QtWidgets.QWidget):
         """
         Resets the search text, hides the widget and returns the focus to the target.
         """
+        self.target.textChanged.disconnect(self.update_search)
         self.edit.setText('')
         self.hide()
         self.target.setFocus()
@@ -508,17 +534,17 @@ class MainWindow(QtWidgets.QWidget):
         self.grammar_highlighters = []
         files = settings['grammar.files']
         for i in range(number_tabs):
-            edit = TextEdit(mode='grammar')
+            tooltip_changer = partial(self.grammar_tabs.setTabToolTip, i)
+            edit = TextEdit('grammar', tooltip_changer)
             edit.setFont(font)
             edit.setTabStopWidth(tabstopwidth)
             if not wrap_lines:
                 edit.setLineWrapMode(QtWidgets.QPlainTextEdit.NoWrap)
-            if files[i]:
-                edit.load(files[i])
             self.grammar_tabs.addTab(edit, '{}'.format(i+1))
-            self.grammar_tabs.setTabToolTip(i, files[i])
             self.grammars.append(edit)
             self.grammar_highlighters.append(LarkHighlighter(edit.document()))
+            if files[i]:
+                edit.load(files[i])
         self.grammar_tabs.setCurrentIndex(settings['grammar.active_tab'])
         l = QtWidgets.QVBoxLayout()
         l.addWidget(self.grammar_tabs)
@@ -531,16 +557,17 @@ class MainWindow(QtWidgets.QWidget):
         self.transformer_highlighters = []
         files = settings['transformer.files']
         for i in range(number_tabs):
-            edit = TextEdit(mode='transformer')
+            tooltip_changer = partial(self.transformer_tabs.setTabToolTip, i)
+            edit = TextEdit('transformer', tooltip_changer)
             edit.setFont(font)
             edit.setTabStopWidth(tabstopwidth)
             if not wrap_lines:
                 edit.setLineWrapMode(QtWidgets.QPlainTextEdit.NoWrap)
-            if files[i]:
-                edit.load(files[i])
             self.transformer_tabs.addTab(edit, '{}'.format(i+1))
             self.transformers.append(edit)
             self.transformer_highlighters.append(common.PythonHighlighter(edit.document()))
+            if files[i]:
+                edit.load(files[i])
         self.transformer_tabs.setCurrentIndex(settings['transformer.active_tab'])
         l = QtWidgets.QVBoxLayout()
         l.addWidget(self.transformer_tabs)
@@ -552,15 +579,16 @@ class MainWindow(QtWidgets.QWidget):
         self.contents = []
         files = settings['content.files']
         for i in range(number_tabs):
-            edit = TextEdit(mode='content')
+            tooltip_changer = partial(self.content_tabs.setTabToolTip, i)
+            edit = TextEdit('content', tooltip_changer)
             edit.setFont(font)
             edit.setTabStopWidth(tabstopwidth)
             if not wrap_lines:
                 edit.setLineWrapMode(QtWidgets.QPlainTextEdit.NoWrap)
-            if files[i]:
-                edit.load(files[i])
             self.content_tabs.addTab(edit, '{}'.format(i+1))
             self.contents.append(edit)
+            if files[i]:
+                edit.load(files[i])
         self.content_tabs.setCurrentIndex(settings['content.active_tab'])
         l = QtWidgets.QVBoxLayout()
         l.addWidget(self.content_tabs)
@@ -568,7 +596,7 @@ class MainWindow(QtWidgets.QWidget):
 
         # parsed tree output
         parsed_groupbox = QtWidgets.QGroupBox('Parsed Tree')
-        self.parsed = common.CodeEditor(settings['options.edit.show_line_numbers'])
+        self.parsed = TextDisplay('parsed')
         self.parsed.setReadOnly(True)
         self.parsed.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse | QtCore.Qt.TextSelectableByKeyboard)
         self.parsed.setFont(font)
@@ -580,7 +608,7 @@ class MainWindow(QtWidgets.QWidget):
 
         # transformed output
         transformed_groupbox = QtWidgets.QGroupBox('Transformed')
-        self.transformed = common.CodeEditor(settings['options.edit.show_line_numbers'])
+        self.transformed = TextDisplay('transformed')
         self.transformed.setReadOnly(True)
         self.transformed.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse | QtCore.Qt.TextSelectableByKeyboard)
         self.transformed.setFont(font)
@@ -610,7 +638,7 @@ class MainWindow(QtWidgets.QWidget):
         toolbar = QtWidgets.QToolBar(self)
 
         # parse and transform action
-        action = QtWidgets.QAction(load_icon('go'), 'Parse and transform', self)
+        action = QtWidgets.QAction(load_icon('go'), 'Parse and transform (F5)', self)
         action.setShortcut(QtGui.QKeySequence(QtCore.Qt.Key_F5))
         action.triggered.connect(self.update.emit)
         toolbar.addAction(action)
@@ -618,25 +646,25 @@ class MainWindow(QtWidgets.QWidget):
         toolbar.addSeparator()
 
         # new action
-        action = QtWidgets.QAction(load_icon('new'), 'New', self)
+        action = QtWidgets.QAction(load_icon('new'), 'New (Ctrl + N)', self)
         action.setShortcut(QtGui.QKeySequence(QtCore.Qt.CTRL + QtCore.Qt.Key_N))
         action.triggered.connect(self.new_action)
         toolbar.addAction(action)
 
         # load action
-        action = QtWidgets.QAction(load_icon('load'), 'Load', self)
+        action = QtWidgets.QAction(load_icon('load'), 'Load (Ctrl + L)', self)
         action.setShortcut(QtGui.QKeySequence(QtCore.Qt.CTRL + QtCore.Qt.Key_L))
         action.triggered.connect(self.load_action)
         toolbar.addAction(action)
 
         # save action
-        action = QtWidgets.QAction(load_icon('save'), 'Save', self)
+        action = QtWidgets.QAction(load_icon('save'), 'Save (Ctrl + S)', self)
         action.setShortcut(QtGui.QKeySequence(QtCore.Qt.CTRL + QtCore.Qt.Key_S))
         action.triggered.connect(self.save_action)
         toolbar.addAction(action)
 
         # search action
-        action = QtWidgets.QAction(load_icon('search'), 'Search', self)
+        action = QtWidgets.QAction(load_icon('search'), 'Search (Ctrl + F)', self)
         action.setShortcut(QtGui.QKeySequence(QtCore.Qt.CTRL + QtCore.Qt.Key_F))
         action.triggered.connect(self.search_action)
         toolbar.addAction(action)
@@ -649,7 +677,7 @@ class MainWindow(QtWidgets.QWidget):
         toolbar.addAction(action)
 
         # show help action
-        action = QtWidgets.QAction(load_icon('help'), 'Help', self)
+        action = QtWidgets.QAction(load_icon('help'), 'Help (F1)', self)
         action.setShortcut(QtGui.QKeySequence(QtCore.Qt.Key_F1))
         action.triggered.connect(self.help_window.show)
         toolbar.addAction(action)
@@ -746,10 +774,8 @@ class MainWindow(QtWidgets.QWidget):
         respective method to load new content.
         """
         focus = self.focusWidget()
-        if isinstance(focus, TextEdit):
+        if isinstance(focus, (TextEdit, TextDisplay)):
             focus.save()
-        elif isinstance(focus, common.CodeEditor):
-            save_from_code_editor(focus)
         else:
             self.show_message('Cannot save content here.')
 
@@ -763,7 +789,7 @@ class MainWindow(QtWidgets.QWidget):
         else:
             # if the search area is hidden, and the focus is on a certain window, show it and set the focus
             focus = self.focusWidget()
-            if isinstance(focus, QtWidgets.QPlainTextEdit):
+            if isinstance(focus, (TextEdit, TextDisplay)):
                 self.search_area.start_search(focus)
                 self.search_area.show()
 
