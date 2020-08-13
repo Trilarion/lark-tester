@@ -213,7 +213,7 @@ class SettingsWindow(QtWidgets.QWidget):
         Sets up the settings window.
         """
         super().__init__(parent)
-        self.setWindowTitle('Properties')
+        self.setWindowTitle('Settings')
         self.setWindowModality(QtCore.Qt.WindowModal)
         self.setWindowFlags(QtCore.Qt.Window)
         self.setMinimumWidth(600)
@@ -621,11 +621,13 @@ class MainWindow(QtWidgets.QWidget):
         # help window
         self.help_window = QtWidgets.QTextEdit(self)
         self.help_window.setWindowTitle('Help')
-        self.help_window.setMinimumSize(600, 400)
+        self.help_window.setMinimumSize(int(minimal_window_size[0] * 0.8), int(minimal_window_size[1] * 0.8))
         self.help_window.setReadOnly(True)
         self.help_window.setWindowModality(QtCore.Qt.WindowModal)
         self.help_window.setWindowFlags(QtCore.Qt.Window)
         self.help_window.setMarkdown(readme_text)
+        self.help_window.selectAll()
+        self.help_window.setFontPointSize(10)  # for some reason the default is quite small
 
         # settings window
         self.settings_window = SettingsWindow(self)
@@ -833,11 +835,13 @@ class MainWindow(QtWidgets.QWidget):
         event.accept()
 
 
-def update(main_window):
+def update(main_window: MainWindow):
     """
     One complete Lark run.
     :param main_window: The main window to retrieve and set text.
     """
+    # TODO time execution of parsing and transforming and display as message
+
     # first the parse
     grammar = main_window.grammar()
     content = main_window.content()
@@ -909,19 +913,27 @@ if __name__ == '__main__':
     except:
         pass
 
-    # fix settings (mostly search for broken paths)
-    if 'path.current' not in settings or not os.path.isdir(settings['path.current']):
-        settings['path.current'] = root_path
-
     # create app
     app = QtWidgets.QApplication([])
     app.setWindowIcon(load_icon('app'))
 
+    # fix settings
+    # remove broken paths
+    if 'path.current' not in settings or not os.path.isdir(settings['path.current']):
+        settings['path.current'] = root_path
+    # screen got smaller than last time, adapt
+    screen_size = app.primaryScreen().size()
+    if settings['window.size.width'] > screen_size.width() or settings['window.size.height'] > screen_size.height():
+        settings['window.size.width'] = min(settings['window.size.width'], screen_size.width())
+        settings['window.size.height'] = min(settings['window.size.height'], screen_size.height())
+        settings['window.splitter.columns.size'] = None
+        settings['window.splitter.left.size'] = None
+
     # show main window
-    main_window = MainWindow()
-    main_window.show()
-    main_window.update.connect(partial(update, main_window))
-    main_window.update.emit()
+    window = MainWindow()
+    window.show()
+    window.update.connect(partial(update, window))
+    window.update.emit()
 
     # start Qt app execution
     sys.exit(app.exec_())
