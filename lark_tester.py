@@ -229,7 +229,6 @@ class SettingsWindow(QtWidgets.QWidget):
 
         l = QtWidgets.QFormLayout(lark_groupbox)
         l.addRow('Parser', self.lark_parser_combobox)
-        l.addRow('Ambiguity', QtWidgets.QComboBox())
         l.addRow('Starting rule', QtWidgets.QLineEdit('start'))
 
         # edits group box
@@ -286,7 +285,8 @@ class LarkHighlighter(QtGui.QSyntaxHighlighter):
 
     styles = {
         'statement': common.createTextCharFormat('mediumblue', style='bold'),
-        'comment': common.createTextCharFormat('darkgray', style='italic')
+        'comment': common.createTextCharFormat('darkgray', style='italic'),
+        'string': common.createTextCharFormat('darkcyan', style='bold')
     }
 
     statements = ('%ignore', '%import', '%declare')
@@ -306,9 +306,10 @@ class LarkHighlighter(QtGui.QSyntaxHighlighter):
 
         rules += [
             # from '#' until a newline
-            (r'\/\/[^\n]*', 'comment')
+            (r'\/\/[^\n]*', 'comment'),
 
-            # alias
+            # Double-quoted string, possibly containing escape sequences
+            (r'"[^"\\]*(\\.[^"\\]*)*"', 'string'),
         ]
 
         self.rules = [(QtCore.QRegularExpression(pattern), LarkHighlighter.styles[format]) for (pattern, format) in rules]

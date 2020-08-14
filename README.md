@@ -17,11 +17,22 @@ grammars and transformers. It can be found at https://github.com/Trilarion/lark-
 
 ### Getting started
 
-TODO how to run
+Make sure that the required dependencies (lark-parser and PyQt5) are installed, then run the *lark_teser.py* script, for
+example by executing *python lark_tester.py* after download of this software.
 
 ### Typical usage
 
-TODO describe default workflow
+The recommended way to use the Lark tester is
+
+- insert some simple test content in a Test content tab
+- write a simple version of the desired grammar, ignore the Transformer
+- try to parse the test content with the simple grammar
+- fix errors in the grammar
+- inspect the parsed result
+- iterate on test content and grammar, bringing both to more production ready levels
+- hint: using the different tabs, it's easy to switch between different test contents or grammars
+- if the grammar is advanced, produce a simple transformer
+- inspect the transformed result, fix errors and iteratively improve the transformer
 
 ### Keyboard shortcuts
 
@@ -38,9 +49,11 @@ select all (Ctrl+A) are available.
 
 ### Settings
 
-TODO describe settings and explain how they are stored, return to default settings
+Settings are stored in a file *settings.json* in the directory of the Lark tester script and can be removed at any
+time to return to the default values. Tabs with grammar/transformer/content that have been saved will be loaded again
+at the next start. Changes in settings or window / splitter sizes are also persistent.
 
-Changes in some edit settings may only take effect after a restart.
+Note: Changes in some edit settings may only take effect after a restart.
 
 ## Contribution
 
@@ -50,3 +63,5 @@ repository and create a pull request.
 ## License
 
 See [license](LICENSE) file.
+
+Icons made by [Those Icons](https://www.flaticon.com/authors/those-icons) and [Freepik](https://www.flaticon.com/authors/freepik) from [www.flaticon.com](https://www.flaticon.com/)
