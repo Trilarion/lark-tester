@@ -11,7 +11,7 @@ grammars and transformers. It can be found at https://github.com/Trilarion/lark-
 - Displays parsed tree as well as transformed output.
 - Allows rapid cycles of changing the grammar, transformer or test content and seeing the parsed/transformed output
 
-TODO insert screenshot
+![Screenshot](/examples/json_screenshot.png)
 
 ## User guide
 

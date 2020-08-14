@@ -626,8 +626,13 @@ class MainWindow(QtWidgets.QWidget):
         self.help_window.setWindowModality(QtCore.Qt.WindowModal)
         self.help_window.setWindowFlags(QtCore.Qt.Window)
         self.help_window.setMarkdown(readme_text)
+        cursor = self.help_window.textCursor()
         self.help_window.selectAll()
         self.help_window.setFontPointSize(10)  # for some reason the default is quite small
+        cursor.clearSelection()
+        self.help_window.setTextCursor(cursor)
+        self.help_window.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse | QtCore.Qt.TextSelectableByKeyboard | QtCore.Qt.LinksAccessibleByMouse | QtCore.Qt.LinksAccessibleByKeyboard)
+
 
         # settings window
         self.settings_window = SettingsWindow(self)
@@ -736,11 +741,25 @@ class MainWindow(QtWidgets.QWidget):
         """
         self.parsed.setTextNoScroll(text)
 
+    def set_parsed_error(self, text):
+        """
+        Sets the content of the parsed output edit area to text printed in red and scrolls up.
+        """
+        self.parsed.setPlainText('')
+        self.parsed.appendHtml('<font color="red"><strong>{}</strong></font>'.format(text))
+
     def set_transformed(self, text):
         """
         Sets the content of the transformed output area to text.
         """
         self.transformed.setTextNoScroll(text)
+
+    def set_transformed_error(self, text):
+        """
+        Sets the content of the transformed output edit area to text printed in red and scrolls up.
+        """
+        self.transformed.setPlainText('')
+        self.transformed.appendHtml('<font color="red"><strong>{}</strong></font>'.format(text))
 
     def show_message(self, text):
         """
@@ -849,7 +868,8 @@ def update(main_window: MainWindow):
         parser = Lark(grammar, start=settings['options.lark.starting_rule'], parser=lark_parsers[settings['options.lark.parser']], debug=False)
         parsed_tree = parser.parse(content)
     except Exception as e:
-        main_window.set_parsed(traceback.format_exc())
+        main_window.set_parsed_error('{}: {}'.format(type(e).__name__, e))
+        # main_window.set_parsed_error(traceback.format_exc())
         main_window.show_message('Exception during parse')
 
         # no need to transform
@@ -869,7 +889,8 @@ def update(main_window: MainWindow):
         else:
             main_window.set_transformed(str(transformed_object))
     except Exception as e:
-        main_window.set_transformed(traceback.format_exc())
+        main_window.set_transformed_error('{}: {}'.format(type(e).__name__, e))
+        # main_window.set_transformed_error(traceback.format_exc())
         main_window.show_message('Exception during transform')
 
 

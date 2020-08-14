@@ -110,6 +110,7 @@ class CodeEditor(QtWidgets.QPlainTextEdit):
         Addition: Tries to keep the vertical scroll bar position when setting a new text.
         """
         vertical_scroll_position = self.verticalScrollBar().sliderPosition()
+        self.clear()
         self.setPlainText(text)
         self.verticalScrollBar().setSliderPosition(vertical_scroll_position)
 
