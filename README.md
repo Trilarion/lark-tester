@@ -17,7 +17,7 @@ grammars and transformers. It can be found at https://github.com/Trilarion/lark-
 
 ### Getting started
 
-Make sure that the required dependencies (lark-parser and PyQt5) are installed, then run the *lark_teser.py* script, for
+Make sure that the required dependencies (lark-parser and PyQt5) are installed, then run the *lark_tester.py* script, for
 example by executing *python lark_tester.py* after download of this software.
 
 ### Typical usage
@@ -33,6 +33,10 @@ The recommended way to use the Lark tester is
 - hint: using the different tabs, it's easy to switch between different test contents or grammars
 - if the grammar is advanced, produce a simple transformer
 - inspect the transformed result, fix errors and iteratively improve the transformer
+
+The Transformer should implement a class called MyTransformer and derived from Transformer _class MyTransformer(Transformer)_ and
+it can be assumed that Discard and v_args from lark is available (from lark import Lark, Transformer, Discard, v_args). Please note
+that the input of the transformer window is executed within the Python interpreter, please check that a given Transformer is not malicious.
 
 ### Keyboard shortcuts
 

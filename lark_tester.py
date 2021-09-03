@@ -748,6 +748,7 @@ class MainWindow(QtWidgets.QWidget):
         """
         self.parsed.setPlainText('')
         self.parsed.appendHtml('<font color="red"><strong>{}</strong></font>'.format(text))
+        # TODO better formatting to better show the position of the error?
 
     def set_transformed(self, text):
         """
@@ -829,7 +830,7 @@ class MainWindow(QtWidgets.QWidget):
                         if settings['options.edit.automatic_save_preference'] == 1:
                             save = True
                         else:
-                            answer = QtWidgets.QMessageBox.warning(self, 'Unsaved modification', '{} tab {} contains unsaved modifications. Save?'.format(name, i), QtWidgets.QMessageBox.Ok | QtWidgets.QMessageBox.Cancel)
+                            answer = QtWidgets.QMessageBox.warning(self, 'Unsaved modification', '{} tab {} contains unsaved modifications. Save?'.format(name, i+1), QtWidgets.QMessageBox.Ok | QtWidgets.QMessageBox.Cancel)
                             save = answer == QtWidgets.QMessageBox.Ok
                         if save:
                             edit.save()
@@ -881,6 +882,7 @@ def update(main_window: MainWindow):
     # then transform
     transformer = main_window.transformer()
     try:
+        # TODO make sure that the class is really called MyTransformer and maybe sanitize or other security checks
         exec(transformer, globals(), globals())
         transformed_object = MyTransformer().transform(parsed_tree)  # MyTransformer should be a resolved reference at runtime
         if isinstance(transformed_object, (list, tuple)):
